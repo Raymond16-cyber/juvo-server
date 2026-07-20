@@ -27,6 +27,12 @@ const studySetSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    flashcards: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "AIFlashCards",
+      },
+    ],
     quizCount: {
       type: Number,  
       default: 0,

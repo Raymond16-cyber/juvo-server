@@ -129,7 +129,8 @@ function buildStudySetFilter(search, category) {
 
 // action services
 export async function createStudySetService(userId, studySetData, authorName) {
-  const newStudySet = await createStudySet({ ...studySetData, authorId: userId, createdBy: authorName });
+  const newStudySet = await createStudySet({ ...studySetData, author: authorName,
+    createdBy: userId, });
   return newStudySet;
 }
 

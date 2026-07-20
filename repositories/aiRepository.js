@@ -1,5 +1,6 @@
 import AIMessages from "../models/AIMessages.js";
 import aiQuiz from "../models/AIQuiz.js";
+import aiFlashcards from "../models/AIFlashcards.js";
 
 export async function createAIMessages(messageData) {
   const message = await AIMessages.create(messageData);
@@ -16,4 +17,9 @@ export async function findAIMessagesByUserId(userId, limit = 20) {
 export async function createAiQuiz(quizData) {
   const quiz = await aiQuiz.create(quizData);
   return quiz;
+}
+
+export async function createAiFlashcards(flashcardData) {
+  const flashcards = await aiFlashcards.create(flashcardData);
+  return flashcards;
 }

@@ -84,6 +84,6 @@ const aiFlashcardSchema = new mongoose.Schema(
   }
 );
 
-const AIFlashcard = mongoose.model("AIFlashcard", aiFlashcardSchema);
+const aiFlashcards = mongoose.model("AIFlashcard", aiFlashcardSchema);
 
-export default AIFlashcard;
+export default aiFlashcards;

@@ -1,5 +1,5 @@
 import { AI_QUIZ_SYSTEM_INSTRUCTIONS, AI_CHAT_SYSTEM_INSTRUCTIONS, AI_FLASHCARD_SYSTEM_INSTRUCTIONS } from "../prompts/aiPrompts.js";
-import { createAiQuiz, findAIMessagesByUserId } from "../repositories/aiRepository.js";
+import { createAiFlashcards, createAiQuiz, findAIMessagesByUserId } from "../repositories/aiRepository.js";
 
 async function chatWithAIService(ai,prompt) {
     try {
@@ -63,8 +63,11 @@ async function createFlashcardsService(ai, prompt, userId) {
             },
             contents: prompt,
         });
+        const flashCards = JSON.parse(response.text);
+        const newFlashcards = await createAiFlashcards(flashCards);
         return {
             response: response,
+            flashcards: newFlashcards,
         };
     } catch (error) {
         console.error(error);

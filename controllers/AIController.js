@@ -92,12 +92,21 @@ async function createQuizWithAIController(req, res) {
 async function createFlashcardsWithAIController(req, res) {
     const userId = req.user._id;
     try {
-        const { prompt, title, description, category } = req.body;
-        const { response } = await createFlashcardsService(ai, prompt, userId);
-        const flashcards = JSON.parse(response.text);
+        const { prompt, title, description, category,isPublic } = req.body;
+        const { response, flashcards } = await createFlashcardsService(ai, prompt, userId);
+        const flashcardsData = JSON.parse(response.text);
+        const studySetResult = await createStudySetService(req.user._id, {
+            title: flashcardsData.title,
+            description: flashcardsData.description || description,
+            category: category,
+            isPublic: isPublic,
+            flashcards: [flashcards._id],
+flashcardCount: flashcards.cards.length,
+        },req.user.fullName);
 
         return res.status(200).json({
             success: true,
+            studySet: studySetResult,
             flashcards: flashcards || "No flashcards generated"
         });
 
