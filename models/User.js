@@ -16,9 +16,13 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       index: true,
     },
+    avatar: {
+      type: String,
+      default: null,
+    },
     authProvider: {
       type: String,
-      enum: ["local", "apple"],
+      enum: ["local", "apple", "google"],
       default: "local",
     },
     providerId: {
@@ -36,10 +40,89 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
+    resetPasswordRequestedAt: {
+      type: Date,
+      default: null,
+    },
+    resetPasswordCode: {
+      type: String,
+      default: null,
+    },
+    tradingAccounts: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "TradingAccount",
+      },
+    ],
+    journals:[
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Journal",
+      }
+    ],
+    goals: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Goal",
+      },
+    ],
+    behaviouralinsights: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "BehaviouralInsight",
+      },
+    ],
+    subscriptionPlan: {
+      type: String,
+      enum: ["free", "pro", "super"],
+      default: "free",
+      status: String,
+      startedAt: Date,
+      expiresAt: Date,
+      trialEndsAt: Date,
+    },
+    strategy:[
+      {
+        type:String,
+        default:null
+      }
+    ],
+    experienceLevel: {
+      type: String,
+      enum: ["beginner",'intermediate',"Advanced"],
+      default:"beginner",
+    },
+    tradingStyle: {
+      type: String,
+      enum: ["scalper","dayTrader","swingTrader","positionTrader"],
+      default:""
+    },
+    country:{
+      type:String,
+      default:""
+    },
+    onboarding: {
+      completed: {
+        type: Boolean,
+        default: false,
+      },
+      step: {
+        type: Number,
+        default: 0,
+      },
+    }
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 userSchema.set("toJSON", {
@@ -52,5 +135,5 @@ userSchema.set("toJSON", {
   },
 });
 
-const User  = mongoose.model("User", userSchema);
+const User = mongoose.model("User", userSchema);
 export default User;

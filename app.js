@@ -2,10 +2,6 @@ import express from "express";
 import cors from "cors";
 // Routes
 import authRoutes from "./routes/authRoutes.js";
-import accountRoutes from "./routes/accountRoutes.js";
-import scanRoutes from "./routes/scanRoutes.js";
-import studySetRoutes from "./routes/studySetRoutes.js";
-import aiRoutes from "./routes/AIRoute.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
@@ -23,10 +19,6 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
-app.use("/api/account", accountRoutes);
-app.use("/api/scan", scanRoutes);
-app.use("/api/studysets", studySetRoutes);
-app.use("/api/ai",aiRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

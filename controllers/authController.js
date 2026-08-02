@@ -1,6 +1,13 @@
-import { registerService,loginService,appleAuthService } from "../services/authService.js";
+import {
+  registerService,
+  loginService,
+  appleAuthService,
+  generateResetPasswordTokenService,
+  verifyResetPasswordCodeService,
+  resetPasswordService,
+} from "../services/authService.js";
 
-async function register(req, res, next) {
+async function signup(req, res, next) {
   try {
     const result = await registerService(req.body);
 
@@ -14,7 +21,7 @@ async function register(req, res, next) {
   }
 }
 
-async function login(req, res, next) {
+async function signin(req, res, next) {
   try {
     const result = await loginService(req.body);
 
@@ -52,9 +59,61 @@ async function me(req, res) {
   });
 }
 
+async function generateResetPasswordToken(req, res, next) {
+  try {
+    // Check for limit request rate remaining
+    const resetRequestTriesLeft = req.rateLimit.remaining;
+    if (resetRequestTriesLeft === 0) {
+      const error = new Error(
+        "Too many password reset requests. Please try again later.",
+      );
+      error.status = 429;
+      return next(error);
+    }
+    const result = await generateResetPasswordTokenService(req.body, res);
+    return res.status(200).json({
+      message: "Password reset token generated successfully.",
+      resetRequestTriesLeft,
+      resetPasswordCode: result.passwordResetCode,
+      resetPasswordToken: result.resetPasswordToken,
+      resetPasswordExpires: result.resetPasswordExpires,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function verifyPasswordResetCode(req, res, next) {
+  try {
+    const { resetPasswordCode, email } = req.body;
+    const result = await verifyResetPasswordCodeService(
+      resetPasswordCode,
+      email,
+    );
+    return res.status(200).json({
+      message: "Password reset code verified successfully.",
+      isValid: result.isValid,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function resetPassword(req, res, next) {
+  const { email, passwords } = req.body;
+  const result = await resetPasswordService({email,passwords,res});
+  return res.status(200).json({
+    message: "Password reset successful.",
+    user: result.user,
+  });
+}
+
 export {
-  register,
-  login,
+  signup,
+  signin,
   appleAuth,
   me,
+  generateResetPasswordToken,
+  verifyPasswordResetCode,
+  resetPassword,
 };

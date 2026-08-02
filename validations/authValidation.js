@@ -55,8 +55,45 @@ function validateAppleAuthInput(payload) {
   };
 }
 
+function validateResetPasswordInput(payload) {
+  const errors = [];
+  let oldPassword = "";
+  let newPassword = "";
+  const email = (payload.email || "").trim().toLowerCase();
+  
+  if (!email) errors.push("Email is required.");
+  if (email && !validateEmail(email)) errors.push("Email is invalid.");
+  
+  if (payload.passwords) {
+    oldPassword = (payload.passwords.old || "").trim();
+    newPassword = (payload.passwords.new || "").trim();
+
+    if (!oldPassword || !newPassword)
+      errors.push("Old and New password is required");
+  }
+  return {
+    isValid: errors.length === 0,
+    errors,
+    data: payload.passwords ? { email, oldPassword, newPassword } : { email },
+  };
+}
+
+function validateVerifyResetPasswordCodeInput(payload) {
+  const errors = [];
+  const resetPasswordCode = (payload.resetPasswordCode || "").trim();
+  if (!resetPasswordCode) errors.push("Reset password code is required.");
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    data: { resetPasswordCode },
+  };
+}
+
 export {
   validateRegisterInput,
   validateLoginInput,
   validateAppleAuthInput,
+  validateResetPasswordInput,
+  validateVerifyResetPasswordCodeInput,
 };

@@ -1,12 +1,28 @@
 import { Router } from "express";
-import { register,login,appleAuth,me } from "../controllers/authController.js";
+import {
+  signup,
+  signin,
+  appleAuth,
+  me,
+  generateResetPasswordToken,
+  verifyPasswordResetCode,
+  resetPassword,
+} from "../controllers/authController.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
+import { forgotPasswordLimiter, verifyResetPasswordCodeLimiter } from "../utils/rateLimit.js";
 
-const router = Router();
+const authRoutes = Router();
 
-router.post("/register", register);
-router.post("/login", login);
-router.post("/apple", appleAuth);
-router.get("/me", requireAuth, me);
+authRoutes.post("/sign-up", signup);
+authRoutes.post("/sign-in", signin);
+authRoutes.post("/apple", appleAuth);
+authRoutes.get("/me", requireAuth, me);
+authRoutes.post(
+  "/request-reset-password",
+  forgotPasswordLimiter,
+  generateResetPasswordToken,
+);
+authRoutes.post("/verify-reset-password-code", verifyResetPasswordCodeLimiter, verifyPasswordResetCode);
+authRoutes.post("/reset-password", verifyResetPasswordCodeLimiter, resetPassword);
 
-export default router;
+export default authRoutes;
