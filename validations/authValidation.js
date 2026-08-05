@@ -57,7 +57,6 @@ function validateAppleAuthInput(payload) {
 
 function validateResetPasswordInput(payload) {
   const errors = [];
-  let oldPassword = "";
   let newPassword = "";
   const email = (payload.email || "").trim().toLowerCase();
   
@@ -65,16 +64,15 @@ function validateResetPasswordInput(payload) {
   if (email && !validateEmail(email)) errors.push("Email is invalid.");
   
   if (payload.passwords) {
-    oldPassword = (payload.passwords.old || "").trim();
     newPassword = (payload.passwords.new || "").trim();
 
-    if (!oldPassword || !newPassword)
-      errors.push("Old and New password is required");
+    if (!newPassword)
+      errors.push("New password is required");
   }
   return {
     isValid: errors.length === 0,
     errors,
-    data: payload.passwords ? { email, oldPassword, newPassword } : { email },
+    data: payload.passwords ? { email, newPassword } : { email },
   };
 }
 

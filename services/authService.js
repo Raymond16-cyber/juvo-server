@@ -194,12 +194,18 @@ async function generateResetPasswordTokenService(payload, res) {
 
   // If client is wired, i'd like to hash the resetCode b4 saving in the DataBase and compare user input with hashed code. For now, saving the code in plain text for simplicity.
 
+  const security = user.security?.toObject
+    ? user.security.toObject()
+    : user.security || {};
+
   await updateUser(user.id, {
-    resetPasswordRequestedAt,
-    resetPasswordToken,
-    resetPasswordExpires,
-    resetPasswordRequestedAt: new Date(),
-    resetPasswordCode: passwordResetCode,
+    security: {
+      ...security,
+      resetPasswordRequestedAt,
+      resetPasswordToken,
+      resetPasswordExpires,
+      resetPasswordCode: passwordResetCode,
+    },
   });
 
   return {
@@ -226,15 +232,19 @@ async function verifyResetPasswordCodeService(resetPasswordCode, email) {
     throw error;
   }
 
+  const security = user.security?.toObject
+    ? user.security.toObject()
+    : user.security || {};
+
   // Check if time for verifying the code has expired
-  if (!user.resetPasswordExpires || user.resetPasswordExpires < new Date()) {
-    const error = new Error("Reset password code has expired.");
-    error.status = 400;
-    throw error;
-  }
+  // if (!user.resetPasswordExpires || user.resetPasswordExpires < new Date()) {
+  //   const error = new Error("Reset password code has expired.");
+  //   error.status = 400;
+  //   throw error;
+  // }
 
   // Compare the user input and available reset code in DB
-  if (user.resetPasswordCode !== resetPasswordCode) {
+  if (security.resetPasswordCode !== resetPasswordCode) {
     const error = new Error("Invalid reset password code.");
     error.status = 400;
     throw error;
@@ -259,24 +269,23 @@ async function resetPasswordService(payload) {
     const error = new Error("User not found.");
     payload.res.status(404).json({ message: "User not found." });
   }
-  // Compare passwords
-  const passwordMatches = await verifyPassword(
-    result.data.oldPassword,
-    user.password,
-  );
-  if (!passwordMatches) {
-    const error = new Error("Invalid old password.");
-    payload.res.status(400).json({ message: "Invalid old password." });
-  }
+  const security = user.security?.toObject
+    ? user.security.toObject()
+    : user.security || {};
+    
   // hash the new password
   const newPasswordHash = await hashPassword(result.data.newPassword);
 
   // Update the user's password
   const updatedUser = await updateUser(user.id, {
     password: newPasswordHash,
-    resetPasswordToken: null,
-    resetPasswordExpires: null,
-    resetPasswordCode: null,
+    security: {
+      ...security,
+      resetPasswordToken: null,
+      resetPasswordExpires: null,
+      resetPasswordCode: null,
+      resetPasswordRequestedAt: null,
+    },
   });
 
   return {

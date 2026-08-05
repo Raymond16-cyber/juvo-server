@@ -3,6 +3,8 @@ import cors from "cors";
 // Routes
 import authRoutes from "./routes/authRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
+import onboardRoutes from "./routes/onboardRoute.js";
+import tradingAccountRoutes from "./routes/tradingaccount.route.js";
 
 const app = express();
 const clientOrigin = process.env.CLIENT_ORIGIN || "*";
@@ -19,6 +21,8 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/onboarding", onboardRoutes);
+app.use("/api/trading-account", tradingAccountRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

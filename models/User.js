@@ -2,123 +2,227 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
+    // Authentication
     fullName: {
       type: String,
       required: true,
       trim: true,
     },
+
     email: {
       type: String,
-      required: false,
       unique: true,
       sparse: true,
-      trim: true,
       lowercase: true,
+      trim: true,
       index: true,
     },
+
+    password: {
+      type: String,
+      default: null,
+    },
+
+    authProvider: {
+      type: String,
+      enum: ["local", "google", "apple"],
+      default: "local",
+    },
+
+    providerId: {
+      type: String,
+      default: null,
+      sparse: true,
+    },
+
     avatar: {
       type: String,
       default: null,
     },
-    authProvider: {
-      type: String,
-      enum: ["local", "apple", "google"],
-      default: "local",
-    },
-    providerId: {
-      type: String,
-      default: null,
-      // unique: true,
-      sparse: true,
-    },
-    password: {
-      type: String,
-      required: false,
-      default: null,
-    },
-    pushToken: {
-      type: String,
-      default: null,
-    },
-    resetPasswordToken: {
-      type: String,
-      default: null,
-    },
-    resetPasswordExpires: {
-      type: Date,
-      default: null,
-    },
-    resetPasswordRequestedAt: {
-      type: Date,
-      default: null,
-    },
-    resetPasswordCode: {
-      type: String,
-      default: null,
-    },
-    tradingAccounts: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "TradingAccount",
+
+    // Profile
+    profile: {
+      country: {
+        type: String,
+        default: "",
       },
-    ],
-    journals:[
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Journal",
-      }
-    ],
-    goals: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Goal",
+
+      timezone: {
+        type: String,
+        default: "UTC",
       },
-    ],
-    behaviouralinsights: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "BehaviouralInsight",
+
+      experienceLevel: {
+        type: String,
+        enum: ["beginner", "intermediate", "advanced"],
+        default: "beginner",
       },
-    ],
-    subscriptionPlan: {
-      type: String,
-      enum: ["free", "pro", "super"],
-      default: "free",
-      status: String,
+
+      tradingStyle: {
+        type: String,
+        enum: ["scalper", "dayTrader", "swingTrader", "positionTrader"],
+      },
+
+      instruments: [
+        {
+          type: String,
+          enum: ["forex", "stocks", "crypto", "commodities", "indices"],
+        },
+      ],
+
+      biggestChallenges: [
+        {
+          type: String,
+          enum: [
+            "FOMO",
+            "Overtrading",
+            "Lack of Discipline",
+            "Lack of Patience",
+            "Fear",
+            "Greed",
+            "Moving Stop Loss",
+            "Closing Winners Too Early",
+            "Other",
+          ],
+        },
+      ],
+    },
+
+    // Preferences
+    preferences: {
+      theme: {
+        type: String,
+        enum: ["light", "dark", "system"],
+        default: "system",
+      },
+
+      preferredCurrency: {
+        type: String,
+        default: "USD",
+      },
+
+      weekStartsOn: {
+        type: String,
+        enum: ["Sunday", "Monday"],
+        default: "Monday",
+      },
+
+      notifications: {
+        enabled: {
+          type: Boolean,
+          default: true,
+        },
+
+        reminderTime: {
+          type: String,
+          default: "08:00",
+        },
+
+        pushToken: {
+          type: String,
+          default: null,
+        },
+      },
+    },
+
+    // Subscription
+    subscription: {
+      plan: {
+        type: String,
+        enum: ["free", "pro", "super"],
+        default: "free",
+      },
+
+      status: {
+        type: String,
+        enum: ["trial", "active", "expired", "cancelled"],
+        default: "trial",
+      },
+
       startedAt: Date,
+
       expiresAt: Date,
+
       trialEndsAt: Date,
     },
-    strategy:[
-      {
-        type:String,
-        default:null
-      }
-    ],
-    experienceLevel: {
-      type: String,
-      enum: ["beginner",'intermediate',"Advanced"],
-      default:"beginner",
+
+    // Security
+    security: {
+      resetPasswordToken: {
+        type: String,
+        default: null,
+      },
+
+      resetPasswordCode: {
+        type: String,
+        default: null,
+      },
+
+      resetPasswordExpires: {
+        type: Date,
+        default: null,
+      },
+
+      resetPasswordRequestedAt: {
+        type: Date,
+        default: null,
+      },
+
+      emailVerified: {
+        type: Boolean,
+        default: false,
+      },
+
+      lastLogin: Date,
     },
-    tradingStyle: {
-      type: String,
-      enum: ["scalper","dayTrader","swingTrader","positionTrader"],
-      default:""
-    },
-    country:{
-      type:String,
-      default:""
-    },
+
+    // Onboarding
     onboarding: {
       completed: {
         type: Boolean,
         default: false,
       },
-      step: {
+
+      currentStep: {
         type: Number,
         default: 0,
       },
-    }
+
+      completedAt: Date,
+    },
+
+    // To be cached for performance optimization
+    stats: {
+      currentJournalStreak: {
+        type: Number,
+        default: 0,
+      },
+
+      longestJournalStreak: {
+        type: Number,
+        default: 0,
+      },
+
+      totalTrades: {
+        type: Number,
+        default: 0,
+      },
+
+      totalJournals: {
+        type: Number,
+        default: 0,
+      },
+    },
+    // Activity
+    lastActiveAt: {
+      type: Date,
+      default: Date.now,
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,
@@ -128,12 +232,17 @@ const userSchema = new mongoose.Schema(
 userSchema.set("toJSON", {
   transform(doc, ret) {
     ret.id = ret._id;
+
     delete ret._id;
-    delete ret.password;
     delete ret.__v;
+    delete ret.password;
+    delete ret.security.resetPasswordToken;
+    delete ret.security.resetPasswordCode;
+
     return ret;
   },
 });
 
 const User = mongoose.model("User", userSchema);
+
 export default User;
