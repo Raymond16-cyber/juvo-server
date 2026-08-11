@@ -66,6 +66,7 @@ const deleteTradingAccountController = async (req, res, next) => {
   if (result.success) {
     return res.status(200).json({
       message: "Trading account deleted successfully.",
+      accountId
     });
   } else {
     return res.status(400).json({

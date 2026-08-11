@@ -54,6 +54,16 @@ const tradingPlanSchema = new mongoose.Schema({
         required: true,
         min: 0,
     },
+    maxDrawnDown: {    // Maximum Drawdown in percentage
+        type: Number,
+        required: true,
+        min: 0
+    },
+    profitTarget: {     // Profit target in percentage
+        type: Number,
+        required: true,
+        min: 0
+    },
     isConnected: {
         type: Boolean,
         default: false,
@@ -92,3 +102,5 @@ const tradingPlanSchema = new mongoose.Schema({
 const TradingAccount = mongoose.model("TradingAccount", tradingPlanSchema);
 
 export default TradingAccount;
+
+// This schema represents a trading account with various attributes such as account details, broker information, balance, user association, and trading parameters. It includes validation rules for certain fields and references to related models like User, TradingStrategy, and TradingPlan.

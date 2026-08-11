@@ -108,6 +108,20 @@ async function resetPassword(req, res, next) {
   });
 }
 
+
+async function editUserInfo(req, res, next) {
+  try {
+    const { email, name, avatar } = req.body;
+    const result = await editUserInfoService({ email, name, avatar });
+    return res.status(200).json({
+      message: "User information updated successfully.",
+      user: result.user,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export {
   signup,
   signin,
@@ -116,4 +130,5 @@ export {
   generateResetPasswordToken,
   verifyPasswordResetCode,
   resetPassword,
+  editUserInfo,
 };

@@ -293,6 +293,11 @@ async function resetPasswordService(payload) {
   };
 }
 
+
+async function editUserInfoService(payload){
+  
+}
+
 export {
   registerService,
   loginService,
