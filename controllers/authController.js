@@ -6,6 +6,7 @@ import {
   verifyResetPasswordCodeService,
   resetPasswordService,
 } from "../services/authService.js";
+import { sendOtpToEmail } from "../utils/email.js";
 
 async function signup(req, res, next) {
   try {
@@ -61,28 +62,33 @@ async function me(req, res) {
 
 async function generateResetPasswordToken(req, res, next) {
   try {
-    // Check for limit request rate remaining
     const resetRequestTriesLeft = req.rateLimit.remaining;
+
     if (resetRequestTriesLeft === 0) {
       const error = new Error(
         "Too many password reset requests. Please try again later.",
       );
+
       error.status = 429;
       return next(error);
     }
+
     const result = await generateResetPasswordTokenService(req.body, res);
+
+    await sendOtpToEmail(
+      req.body.email,
+      result.passwordResetCode,
+      "request-reset-password",
+    );
+
     return res.status(200).json({
-      message: "Password reset token generated successfully.",
+      message: "Password reset code sent successfully.",
       resetRequestTriesLeft,
-      resetPasswordCode: result.passwordResetCode,
-      resetPasswordToken: result.resetPasswordToken,
-      resetPasswordExpires: result.resetPasswordExpires,
     });
   } catch (error) {
     return next(error);
   }
 }
-
 async function verifyPasswordResetCode(req, res, next) {
   try {
     const { resetPasswordCode, email } = req.body;
@@ -101,13 +107,12 @@ async function verifyPasswordResetCode(req, res, next) {
 
 async function resetPassword(req, res, next) {
   const { email, passwords } = req.body;
-  const result = await resetPasswordService({email,passwords,res});
+  const result = await resetPasswordService({ email, passwords, res });
   return res.status(200).json({
     message: "Password reset successful.",
     user: result.user,
   });
 }
-
 
 async function editUserInfo(req, res, next) {
   try {

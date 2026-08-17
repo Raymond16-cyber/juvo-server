@@ -54,7 +54,7 @@ async function registerService(payload) {
     pushToken: result.data.pushToken || null,
     // providerId:payload.providerId
   });
-  console.log("results: ");
+  console.log("results:");
 
   if (result.data.pushToken) {
     sendWelcomeNotification(result.data.pushToken).catch((error) => {

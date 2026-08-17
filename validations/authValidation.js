@@ -57,22 +57,15 @@ function validateAppleAuthInput(payload) {
 
 function validateResetPasswordInput(payload) {
   const errors = [];
-  let newPassword = "";
   const email = (payload.email || "").trim().toLowerCase();
   
   if (!email) errors.push("Email is required.");
   if (email && !validateEmail(email)) errors.push("Email is invalid.");
-  
-  if (payload.passwords) {
-    newPassword = (payload.passwords.new || "").trim();
 
-    if (!newPassword)
-      errors.push("New password is required");
-  }
   return {
     isValid: errors.length === 0,
     errors,
-    data: payload.passwords ? { email, newPassword } : { email },
+    data: { email },
   };
 }
 

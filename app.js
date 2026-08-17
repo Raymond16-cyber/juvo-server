@@ -12,8 +12,10 @@ const clientOrigin = process.env.CLIENT_ORIGIN || "*";
 app.use(
   cors({
     origin: clientOrigin,
-  })
+    credentials: true,
+  }),
 );
+
 app.use(express.json());
 
 app.get("/health", (req, res) => {
