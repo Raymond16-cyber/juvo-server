@@ -14,3 +14,8 @@ export async function generateRequestOtpToken() {
   const token = signToken({ resetPassword: true }, "1h"); // Token expires in 1 hour
   return token;
 }
+
+export async function generateOtpVerificationToken() {
+  const token = signToken({ otpVerification: true }, "1h");
+  return token;
+}

@@ -113,10 +113,12 @@ async function verifyOtpVerificationCode(req, res, next) {
         error: result.error.error,
       });
     }
+    console.log("OTP verification result:", result); // Log the result for debugging
     // const resetPasswordToken = await 
     return res.status(200).json({
-      message: "OTP verified successfully.",
       isValid: result.isValid,
+      message: "OTP verified successfully.",
+      resetPasswordToken: result.resetPasswordToken,
     });
   } catch (error) {
     return next(error);

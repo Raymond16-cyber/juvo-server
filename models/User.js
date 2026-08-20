@@ -165,6 +165,10 @@ const userSchema = new mongoose.Schema(
         type: String,
         default: null,
       },
+      isOtpVerified: {
+        type: Boolean,
+        default: false,
+      },
       resetPasswordToken: {
         type: String,
         default: null,

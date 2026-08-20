@@ -1,4 +1,5 @@
 import {
+  generateOtpVerificationToken,
   generateRequestOtpToken,
   hashPassword,
   verifyPassword,
@@ -207,7 +208,12 @@ async function generateOtpVerificationTokenService(payload) {
       otpVerificationRequestedAt,
       otpVerificationToken,
       otpVerificationExpires,
-      otpVerificationCode
+      otpVerificationCode,
+      isOtpVerified: false,
+      resetPasswordToken: null,
+      resetPasswordExpires: null,
+      resetPasswordRequestedAt: null,
+      resetPasswordVerified: false,
     },
   });
 
@@ -258,8 +264,23 @@ async function verifyOtpVerificationCodeService(otp, email, res) {
     return { error, isError: true };
   }
 
+  const resetPasswordToken = await generateOtpVerificationToken();
+  const resetPasswordRequestedAt = new Date();
+  const resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
+
+  await updateUser(user._id, {
+    security: {
+      ...security,
+      resetPasswordToken,
+      resetPasswordRequestedAt,
+      resetPasswordExpires,
+      isOtpVerified: true,
+    },
+  });
+
   return {
     isValid: true,
+    resetPasswordToken,
   };
 }
 
