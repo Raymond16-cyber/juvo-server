@@ -148,12 +148,24 @@ const userSchema = new mongoose.Schema(
 
     // Security
     security: {
-      resetPasswordToken: {
+      otpVerificationToken: {
         type: String,
         default: null,
       },
+      otpVerificationExpires: {
+        type: Date,
+        default: null,
+      },
+      otpVerificationRequestedAt: {
+        type: Date,
+        default: null,
+      },
 
-      resetPasswordCode: {
+      otpVerificationCode: {
+        type: String,
+        default: null,
+      },
+      resetPasswordToken: {
         type: String,
         default: null,
       },
@@ -166,6 +178,10 @@ const userSchema = new mongoose.Schema(
       resetPasswordRequestedAt: {
         type: Date,
         default: null,
+      },
+      resetPasswordVerified: {
+        type: Boolean,
+        default: false,
       },
 
       emailVerified: {

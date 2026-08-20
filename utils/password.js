@@ -10,7 +10,7 @@ export async function verifyPassword(password, storedPassword) {
 }
 
 
-export async function generateResetPasswordToken() {
+export async function generateRequestOtpToken() {
   const token = signToken({ resetPassword: true }, "1h"); // Token expires in 1 hour
   return token;
 }

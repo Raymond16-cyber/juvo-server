@@ -1,5 +1,5 @@
 import {
-  generateResetPasswordToken,
+  generateRequestOtpToken,
   hashPassword,
   verifyPassword,
 } from "../utils/password.js";
@@ -14,8 +14,8 @@ import {
   validateRegisterInput,
   validateLoginInput,
   validateAppleAuthInput,
-  validateResetPasswordInput,
-  validateVerifyResetPasswordCodeInput,
+  validateVerifyOtpVerificationCodeInput,
+  validateRequestOtpInput,
 } from "..//validations/authValidation.js";
 import { sendWelcomeNotification } from "../services/notificationService.js";
 
@@ -156,8 +156,8 @@ async function appleAuthService(payload) {
   };
 }
 
-async function generateResetPasswordTokenService(payload, res) {
-  const result = validateResetPasswordInput(payload);
+async function generateOtpVerificationTokenService(payload) {
+  const result = validateRequestOtpInput(payload);
 
   if (!result.isValid) {
     const error = new Error(result.errors.join(" "));
@@ -166,59 +166,63 @@ async function generateResetPasswordTokenService(payload, res) {
   }
 
   const user = await findUserByEmail(result.data.email);
+
   if (!user) {
     const error = new Error("User not found.");
     error.status = 404;
     throw error;
   }
-  // Check if user just requested a password reset within the last 1 minute
+
+  // Prevent another request within 1 minute
   if (
-    user.resetPasswordRequestedAt &&
-    Date.now() - user.resetPasswordRequestedAt < 60 * 1000
+    user.security?.otpVerificationRequestedAt &&
+    Date.now() - new Date(user.security.otpVerificationRequestedAt).getTime() <
+      60 * 1000
   ) {
-    return res.status(429).json({
-      success: false,
-      message:
-        "You can only request a password reset once every minute. Please try again later.",
-    });
+    const error = new Error(
+      "You can only request a password reset once every minute. Please try again later.",
+    );
+
+    error.status = 429;
+    throw error;
   }
 
-  // Generate a reset password token and expiration
-  const resetPasswordRequestedAt = new Date();
-  const resetPasswordToken = await generateResetPasswordToken();
-  const resetPasswordExpires = new Date();
-  resetPasswordExpires.setHours(resetPasswordExpires.getHours() + 0.25); // Token expires in 15 minutes
-  const passwordResetCode = Math.floor(
-    100000 + Math.random() * 900000,
-  ).toString(); // Generate a 6-digit code
+  const otpVerificationRequestedAt = new Date();
 
-  // If client is wired, i'd like to hash the resetCode b4 saving in the DataBase and compare user input with hashed code. For now, saving the code in plain text for simplicity.
+  const otpVerificationToken = await generateRequestOtpToken();
+
+  const otpVerificationExpires = new Date(Date.now() + 15 * 60 * 1000);
+
+  const otpVerificationCode = Math.floor(
+    100000 + Math.random() * 900000,
+  ).toString();
 
   const security = user.security?.toObject
     ? user.security.toObject()
     : user.security || {};
 
-  await updateUser(user.id, {
+  const updatedUser = await updateUser(user.id, {
     security: {
       ...security,
-      resetPasswordRequestedAt,
-      resetPasswordToken,
-      resetPasswordExpires,
-      resetPasswordCode: passwordResetCode,
+      otpVerificationRequestedAt,
+      otpVerificationToken,
+      otpVerificationExpires,
+      otpVerificationCode
     },
   });
 
   return {
-    user: sanitizeUser(user),
-    resetPasswordToken,
-    resetPasswordExpires,
-    passwordResetCode,
+    user: sanitizeUser(updatedUser),
+    otpVerificationToken,
+    otpVerificationExpires,
+    otpVerificationCode,
   };
 }
 
-// verify the reset password code provided by the user
-async function verifyResetPasswordCodeService(resetPasswordCode, email) {
-  const result = validateVerifyResetPasswordCodeInput({ resetPasswordCode });
+// verify the OTP verification code provided by the user
+async function verifyOtpVerificationCodeService(otp, email, res) {
+  const result = validateVerifyOtpVerificationCodeInput({ otp });
+
   if (!result.isValid) {
     const error = new Error(result.errors.join(" "));
     error.status = 400;
@@ -237,17 +241,21 @@ async function verifyResetPasswordCodeService(resetPasswordCode, email) {
     : user.security || {};
 
   // Check if time for verifying the code has expired
-  // if (!user.resetPasswordExpires || user.resetPasswordExpires < new Date()) {
-  //   const error = new Error("Reset password code has expired.");
-  //   error.status = 400;
-  //   throw error;
-  // }
-
-  // Compare the user input and available reset code in DB
-  if (security.resetPasswordCode !== resetPasswordCode) {
-    const error = new Error("Invalid reset password code.");
+  if (
+    !security.otpVerificationExpires ||
+    security.otpVerificationExpires < new Date()
+  ) {
+    const error = new Error("OTP verification code has expired.");
     error.status = 400;
     throw error;
+  }
+
+  // Compare the user input and available reset code in DB
+  if (security.otpVerificationCode !== otp) {
+    let error = {};
+    error.error = "Invalid OTP verification code";
+    error.status = 400;
+    return { error, isError: true };
   }
 
   return {
@@ -258,33 +266,59 @@ async function verifyResetPasswordCodeService(resetPasswordCode, email) {
 async function resetPasswordService(payload) {
   const result = validateResetPasswordInput(payload);
 
-  // console.log("results from reset password service",result)
   if (!result.isValid) {
     const error = new Error(result.errors.join(" "));
-    payload.res.status(400).json({ message: result.errors.join(" ") });
+    error.status = 400;
+    throw error;
   }
 
   const user = await findUserByEmail(result.data.email);
+
   if (!user) {
     const error = new Error("User not found.");
-    payload.res.status(404).json({ message: "User not found." });
+    error.status = 404;
+    throw error;
   }
+
   const security = user.security?.toObject
     ? user.security.toObject()
     : user.security || {};
-    
-  // hash the new password
-  const newPasswordHash = await hashPassword(result.data.newPassword);
 
-  // Update the user's password
+  // Make sure OTP was verified
+  if (!security.resetPasswordVerified) {
+    const error = new Error("Please verify your password reset code first.");
+
+    error.status = 403;
+    throw error;
+  }
+
+  // Make sure reset session hasn't expired
+  if (
+    !security.resetPasswordExpires ||
+    new Date(security.resetPasswordExpires) < new Date()
+  ) {
+    const error = new Error(
+      "Your password reset session has expired. Please request a new code.",
+    );
+
+    error.status = 400;
+    throw error;
+  }
+
+  const newPasswordHash = await hashPassword(result.data.passwords);
+
   const updatedUser = await updateUser(user.id, {
     password: newPasswordHash,
+
     security: {
       ...security,
+
+      // Invalidate the reset session
       resetPasswordToken: null,
       resetPasswordExpires: null,
       resetPasswordCode: null,
       resetPasswordRequestedAt: null,
+      resetPasswordVerified: false,
     },
   });
 
@@ -293,16 +327,13 @@ async function resetPasswordService(payload) {
   };
 }
 
-
-async function editUserInfoService(payload){
-  
-}
+async function editUserInfoService(payload) {}
 
 export {
   registerService,
   loginService,
   appleAuthService,
-  generateResetPasswordTokenService,
-  verifyResetPasswordCodeService,
+  generateOtpVerificationTokenService,
+  verifyOtpVerificationCodeService,
   resetPasswordService,
 };

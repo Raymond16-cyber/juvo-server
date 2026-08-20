@@ -55,29 +55,73 @@ function validateAppleAuthInput(payload) {
   };
 }
 
-function validateResetPasswordInput(payload) {
+function validateRequestOtpInput(payload) {
   const errors = [];
-  const email = (payload.email || "").trim().toLowerCase();
-  
-  if (!email) errors.push("Email is required.");
-  if (email && !validateEmail(email)) errors.push("Email is invalid.");
 
+  const email = (payload.email || "").trim().toLowerCase();
+
+  if (!email) {
+    errors.push("Email is required.");
+  }
+
+  if (email && !validateEmail(email)) {
+    errors.push("Email is invalid.");
+  }
   return {
     isValid: errors.length === 0,
     errors,
-    data: { email },
+    data: {
+      email,
+    },
   };
 }
 
-function validateVerifyResetPasswordCodeInput(payload) {
+function validateResetPasswordInput(payload) {
   const errors = [];
-  const resetPasswordCode = (payload.resetPasswordCode || "").trim();
-  if (!resetPasswordCode) errors.push("Reset password code is required.");
+
+  const email = (payload.email || "").trim().toLowerCase();
+  const passwords = payload.passwords || "";
+
+  if (!email) {
+    errors.push("Email is required.");
+  }
+
+  if (email && !validateEmail(email)) {
+    errors.push("Email is invalid.");
+  }
+
+  if (!passwords) {
+    errors.push("New password is required.");
+  }
+
+  if (passwords && passwords.length < 6) {
+    errors.push("Password must be at least 6 characters.");
+  }
 
   return {
     isValid: errors.length === 0,
     errors,
-    data: { resetPasswordCode },
+    data: {
+      email,
+      passwords,
+    },
+  };
+}
+
+function validateVerifyOtpVerificationCodeInput(payload) {
+  const errors = [];
+  const otpVerificationCode = String(payload.otp || "").trim();
+
+  if (!otpVerificationCode) {
+    errors.push("OTP verification code is required.");
+  } else if (!/^\d{6}$/.test(otpVerificationCode)) {
+    errors.push("OTP verification code must be exactly 6 digits.");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    data: { otpVerificationCode },
   };
 }
 
@@ -85,6 +129,6 @@ export {
   validateRegisterInput,
   validateLoginInput,
   validateAppleAuthInput,
-  validateResetPasswordInput,
-  validateVerifyResetPasswordCodeInput,
+  validateRequestOtpInput,
+  validateVerifyOtpVerificationCodeInput,
 };

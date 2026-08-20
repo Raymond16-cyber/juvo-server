@@ -4,15 +4,15 @@ import {
   signin,
   appleAuth,
   me,
-  generateResetPasswordToken,
-  verifyPasswordResetCode,
+  generateOtpVerificationToken,
+  verifyOtpVerificationCode,
   resetPassword,
 } from "../controllers/authController.js";
 import { onBoardingUser } from "../controllers/onBoarding.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
 import {
   forgotPasswordLimiter,
-  verifyResetPasswordCodeLimiter,
+  verifyOtpVerificationCodeLimiter,
 } from "../utils/rateLimit.js";
 
 const authRoutes = Router();
@@ -25,16 +25,16 @@ authRoutes.post("/onboarding", requireAuth, onBoardingUser);
 authRoutes.post(
   "/request-reset-password",
   forgotPasswordLimiter,
-  generateResetPasswordToken,
+  generateOtpVerificationToken,
 );
 authRoutes.post(
-  "/verify-reset-password-code",
-  verifyResetPasswordCodeLimiter,
-  verifyPasswordResetCode,
+  "/verify-reset-password-code/:otpVerificationToken",
+  verifyOtpVerificationCodeLimiter,
+  verifyOtpVerificationCode,
 );
 authRoutes.post(
   "/reset-password",
-  verifyResetPasswordCodeLimiter,
+  verifyOtpVerificationCodeLimiter,
   resetPassword,
 );
 

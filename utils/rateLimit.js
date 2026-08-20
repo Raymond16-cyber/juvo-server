@@ -16,7 +16,7 @@ export const forgotPasswordLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-export const verifyResetPasswordCodeLimiter = rateLimit({
+export const verifyOtpVerificationCodeLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 15 minutes
 
   max: 5,
