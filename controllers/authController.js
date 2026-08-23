@@ -26,6 +26,7 @@ async function signup(req, res, next) {
 async function signin(req, res, next) {
   try {
     const result = await loginService(req.body);
+    
 
     return res.status(200).json({
       message: "Login successful.",
@@ -75,12 +76,14 @@ async function generateOtpVerificationToken(req, res, next) {
     }
 
     const result = await generateOtpVerificationTokenService(req.body);
+    console.log(result.otpVerificationCode)
 
-    await sendOtpToEmail(
-      req.body.email,
-      result.otpVerificationCode,
-      "request-reset-password",
-    );
+    // Uncomment after network is restored
+    // await sendOtpToEmail(
+    //   req.body.email,
+    //   result.otpVerificationCode,
+    //   "request-reset-password",
+    // );
 
     return res.status(200).json({
       message:
@@ -103,8 +106,7 @@ async function verifyOtpVerificationCode(req, res, next) {
     });
     if (!user) {
       return res.status(400).json({
-        error:
-          "Invalid OTP verification token. Please request a new OTP.",
+        error: "Invalid OTP verification token. Please request a new OTP.",
       });
     }
     const result = await verifyOtpVerificationCodeService(otp, email, res);
@@ -113,8 +115,7 @@ async function verifyOtpVerificationCode(req, res, next) {
         error: result.error.error,
       });
     }
-    console.log("OTP verification result:", result); // Log the result for debugging
-    // const resetPasswordToken = await 
+    // const resetPasswordToken = await
     return res.status(200).json({
       isValid: result.isValid,
       message: "OTP verified successfully.",
@@ -128,6 +129,18 @@ async function verifyOtpVerificationCode(req, res, next) {
 async function resetPassword(req, res, next) {
   try {
     const { email, passwords } = req.body;
+    const { resetPasswordToken } = req.params;
+
+    // check if the resetPasswordToken in the request params matches the one stored in the database for the given email
+    const user = await User.findOne({
+      email,
+      "security.resetPasswordToken": resetPasswordToken,
+    });
+    if (!user) {
+      return res.status(400).json({
+        error: "Invalid reset password token.",
+      });
+    }
 
     const result = await resetPasswordService({
       email,

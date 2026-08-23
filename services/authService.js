@@ -17,6 +17,7 @@ import {
   validateAppleAuthInput,
   validateVerifyOtpVerificationCodeInput,
   validateRequestOtpInput,
+  validateResetPasswordInput
 } from "..//validations/authValidation.js";
 import { sendWelcomeNotification } from "../services/notificationService.js";
 
@@ -306,7 +307,7 @@ async function resetPasswordService(payload) {
     : user.security || {};
 
   // Make sure OTP was verified
-  if (!security.resetPasswordVerified) {
+  if (!security.isOtpVerified) {
     const error = new Error("Please verify your password reset code first.");
 
     error.status = 403;

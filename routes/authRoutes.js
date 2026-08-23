@@ -33,7 +33,7 @@ authRoutes.post(
   verifyOtpVerificationCode,
 );
 authRoutes.post(
-  "/reset-password",
+  "/reset-password/:resetPasswordToken",
   verifyOtpVerificationCodeLimiter,
   resetPassword,
 );

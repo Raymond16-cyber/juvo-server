@@ -131,4 +131,5 @@ export {
   validateAppleAuthInput,
   validateRequestOtpInput,
   validateVerifyOtpVerificationCodeInput,
+  validateResetPasswordInput
 };
