@@ -36,10 +36,12 @@ const journalSchema = new mongoose.Schema(
       default: "Started",
     },
 
-    trades: [{
+    trades: [
+      {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Trade",
-    }],
+      },
+    ],
 
     psychology: {
       beforeTrading: {
