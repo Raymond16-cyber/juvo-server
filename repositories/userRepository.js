@@ -35,7 +35,6 @@ export async function createUser(userData) {
 
 export async function updateUser(userId, updates) {
   const user = await User.findByIdAndUpdate(userId, updates, { new: true });
-  console.log("success")
   return user;
 }
 

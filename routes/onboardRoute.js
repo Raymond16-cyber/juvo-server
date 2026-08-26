@@ -4,7 +4,9 @@ import { requireAuth } from "../middleware/authMiddleware.js";
 
 
 const onboardRoutes = Router();
-onboardRoutes.post("/onboard-user", requireAuth, onBoardingUser);
+onboardRoutes.post("/onboard-user", 
+    requireAuth, 
+    onBoardingUser);
 
 
 export default onboardRoutes;

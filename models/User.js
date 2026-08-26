@@ -54,35 +54,41 @@ const userSchema = new mongoose.Schema(
 
       experienceLevel: {
         type: String,
-        enum: ["beginner", "intermediate", "advanced"],
+        enum: ["beginner", "intermediate", "advanced", "professional"],
         default: "beginner",
       },
 
       tradingStyle: {
         type: String,
-        enum: ["scalper", "dayTrader", "swingTrader", "positionTrader"],
+        enum: ["scalping", "day_trading", "swing_trading", "position_trading"],
+        default: "day_trading",
       },
 
       instruments: [
         {
           type: String,
-          enum: ["forex", "stocks", "crypto", "commodities", "indices"],
+          enum: [
+            "forex",
+            "crypto",
+            "stocks",
+            "indices",
+            "commodities",
+            "futures",
+          ],
         },
       ],
-
       biggestChallenges: [
         {
           type: String,
           enum: [
-            "FOMO",
-            "Overtrading",
-            "Lack of Discipline",
-            "Lack of Patience",
-            "Fear",
-            "Greed",
-            "Moving Stop Loss",
-            "Closing Winners Too Early",
-            "Other",
+            "fomo",
+            "revenge_trading",
+            "overtrading",
+            "impatience",
+            "poor_risk_management",
+            "emotional_trading",
+            "lack_of_discipline",
+            "inconsistent_strategy",
           ],
         },
       ],
@@ -103,8 +109,8 @@ const userSchema = new mongoose.Schema(
 
       weekStartsOn: {
         type: String,
-        enum: ["Sunday", "Monday"],
-        default: "Monday",
+        enum: ["sunday", "monday"],
+        default: "monday",
       },
 
       notifications: {

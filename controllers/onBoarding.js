@@ -2,58 +2,49 @@ import { updateUser } from "../repositories/userRepository.js";
 import { validateOnboardingInput } from "../validations/onboardingValidation.js";
 
 function buildOnboardingUpdates(data) {
+  const completedAt = new Date();
   const updates = {
-    onboarding: {
-      completed: true,
-      currentStep: data.currentStep ?? 0,
-      completedAt: new Date(),
+    $set: {
+      "onboarding.completed": true,
+      "onboarding.currentStep": data.currentStep ?? 0,
+      "onboarding.completedAt": completedAt,
+      lastActiveAt: completedAt,
     },
-    lastActiveAt: new Date(),
   };
 
-  const profile = {};
-  const preferences = {};
-
-  if (data.country !== undefined) profile.country = data.country;
-  if (data.timezone !== undefined) profile.timezone = data.timezone;
+  if (data.country !== undefined) updates.$set["profile.country"] = data.country;
+  if (data.timezone !== undefined) {
+    updates.$set["profile.timezone"] = data.timezone;
+  }
   if (data.experienceLevel !== undefined) {
-    profile.experienceLevel = data.experienceLevel;
+    updates.$set["profile.experienceLevel"] = data.experienceLevel;
   }
-  if (data.tradingStyle !== undefined) profile.tradingStyle = data.tradingStyle;
-  if (data.instruments !== undefined) profile.instruments = data.instruments;
+  if (data.tradingStyle !== undefined) {
+    updates.$set["profile.tradingStyle"] = data.tradingStyle;
+  }
+  if (data.instruments !== undefined) {
+    updates.$set["profile.instruments"] = data.instruments;
+  }
   if (data.biggestChallenges !== undefined) {
-    profile.biggestChallenges = data.biggestChallenges;
+    updates.$set["profile.biggestChallenges"] = data.biggestChallenges;
   }
 
-  if (data.theme !== undefined) preferences.theme = data.theme;
+  if (data.theme !== undefined) updates.$set["preferences.theme"] = data.theme;
   if (data.preferredCurrency !== undefined) {
-    preferences.preferredCurrency = data.preferredCurrency;
+    updates.$set["preferences.preferredCurrency"] = data.preferredCurrency;
   }
   if (data.weekStartsOn !== undefined) {
-    preferences.weekStartsOn = data.weekStartsOn;
+    updates.$set["preferences.weekStartsOn"] = data.weekStartsOn;
   }
-  if (
-    data.notificationsEnabled !== undefined ||
-    data.reminderTime !== undefined ||
-    data.pushToken !== undefined
-  ) {
-    preferences.notifications = {
-      ...(data.notificationsEnabled !== undefined
-        ? { enabled: data.notificationsEnabled }
-        : {}),
-      ...(data.reminderTime !== undefined
-        ? { reminderTime: data.reminderTime }
-        : {}),
-      ...(data.pushToken !== undefined ? { pushToken: data.pushToken } : {}),
-    };
+  if (data.notificationsEnabled !== undefined) {
+    updates.$set["preferences.notifications.enabled"] =
+      data.notificationsEnabled;
   }
-
-  if (Object.keys(profile).length > 0) {
-    updates.profile = profile;
+  if (data.reminderTime !== undefined) {
+    updates.$set["preferences.notifications.reminderTime"] = data.reminderTime;
   }
-
-  if (Object.keys(preferences).length > 0) {
-    updates.preferences = preferences;
+  if (data.pushToken !== undefined) {
+    updates.$set["preferences.notifications.pushToken"] = data.pushToken;
   }
 
   return updates;

@@ -1,9 +1,14 @@
-const PROFILE_EXPERIENCE_LEVELS = ["beginner", "intermediate", "advanced"];
+const PROFILE_EXPERIENCE_LEVELS = [
+  "beginner",
+  "intermediate",
+  "advanced",
+  "professional",
+];
 const PROFILE_TRADING_STYLES = [
-  "scalper",
-  "dayTrader",
-  "swingTrader",
-  "positionTrader",
+  "scalping",
+  "day_trading",
+  "swing_trading",
+  "position_trading",
 ];
 const PROFILE_INSTRUMENTS = [
   "forex",
@@ -11,20 +16,20 @@ const PROFILE_INSTRUMENTS = [
   "crypto",
   "commodities",
   "indices",
+  "futures",
 ];
 const PROFILE_CHALLENGES = [
-  "FOMO",
-  "Overtrading",
-  "Lack of Discipline",
-  "Lack of Patience",
-  "Fear",
-  "Greed",
-  "Moving Stop Loss",
-  "Closing Winners Too Early",
-  "Other",
+  "fomo",
+  "revenge_trading",
+  "overtrading",
+  "impatience",
+  "poor_risk_management",
+  "emotional_trading",
+  "lack_of_discipline",
+  "inconsistent_strategy",
 ];
 const THEME_OPTIONS = ["light", "dark", "system"];
-const WEEK_START_OPTIONS = ["Sunday", "Monday"];
+const WEEK_START_OPTIONS = ["sunday", "monday"];
 
 function validateOnboardingInput(payload) {
   const errors = [];
@@ -68,10 +73,10 @@ function validateOnboardingInput(payload) {
     errors.push("Trading style is invalid.");
   }
 
-  if (!Array.isArray(payload.instruments) || payload.instruments.length === 0) {
+  if (!Array.isArray(data.instruments) || data.instruments.length === 0) {
     errors.push("At least one instrument is required.");
   } else if (
-    payload.instruments.some(
+    data.instruments.some(
       (instrument) => !PROFILE_INSTRUMENTS.includes(instrument),
     )
   ) {
