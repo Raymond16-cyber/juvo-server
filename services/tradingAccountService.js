@@ -7,18 +7,18 @@ async function createTradingAccountService(data, res, userId) {
   const result = validateTradingAccountInput(data);
 
   if (!result.isValid) {
-    const error = new Error(result.errors.join(" "));
-    res.status(400).json({
+    return {
+      success: false,
       message: result.errors.join(" "),
-    });
+    };
   }
 
   const user = await findUserById(userId);
   if (!user) {
-    const error = new Error("User not found.");
-    res.status(404).json({
+    return {
+      success: false,
       message: "User not found.",
-    });
+    };
   }
 
   const tradingAccount = await createTradingAccount(result.data, userId);
@@ -41,7 +41,7 @@ async function deleteTradingAccountService(accountId, userId) {
 
   const tradingAccount = await TradingAccount.findOneAndDelete({
     _id: accountId,
-    user: userId,
+    userId,
   });
 
   if (!tradingAccount) {

@@ -26,6 +26,10 @@ const createTradingAccountController = async (req, res, next) => {
         data: createTradingAccountResult.data,
       });
     }
+
+    return res.status(400).json({
+      message: createTradingAccountResult.message || "Failed to create trading account.",
+    });
   } catch (err) {
     next(err);
   }
@@ -40,13 +44,10 @@ const getUserTradingAccountsController = async (req, res, next) => {
       });
     }
     const tradingAccounts = await getUserTradingAccounts(userId);
-    if (!tradingAccounts || tradingAccounts.length === 0) {
-      return res.status(404).json({
-        message: "No trading accounts found for the user.",
-      });
-    }
     return res.status(200).json({
-      message: "Trading accounts retrieved successfully.",
+      message: tradingAccounts.length
+        ? "Trading accounts retrieved successfully."
+        : "No trading accounts found for the user.",
       data: tradingAccounts,
     });
   } catch (err) {

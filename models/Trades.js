@@ -2,6 +2,27 @@ import mongoose from "mongoose";
 
 const tradeSchema = new mongoose.Schema(
   {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    journal: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Journal",
+      required: true,
+      index: true,
+    },
+
+    tradingAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TradingAccount",
+      required: true,
+      index: true,
+    },
+
     symbol: {
       type: String,
       required: true,

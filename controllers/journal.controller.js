@@ -1,6 +1,8 @@
 import {
   createJournalService,
+  createJournalTradeService,
   getTodayJournalStatusService,
+  getUserJournalsService,
 } from "../services/journal.service.js";
 
 function getZonedDateParts(date, timeZone) {
@@ -95,6 +97,32 @@ async function getTodayJournalStatusController(req, res, next) {
   }
 }
 
+async function getUserJournalsController(req, res, next) {
+  try {
+    const userId = req.user.id;
+    if (!userId) {
+      return res.status(400).json({
+        message: "User is not signed in.",
+      });
+    }
+
+    const journalsResult = await getUserJournalsService(userId);
+
+    if (journalsResult.success) {
+      return res.status(200).json({
+        message: "Journals retrieved successfully.",
+        data: journalsResult.data,
+      });
+    }
+
+    return res.status(500).json({
+      message: journalsResult.error || "Unable to retrieve journals.",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function createJournalController(req, res, next) {
   try {
     const userId = req.user.id;
@@ -105,17 +133,62 @@ async function createJournalController(req, res, next) {
       });
     }
 
-    const createJournalResult = await createJournalService(data, res, userId);
+    const timeZone = req.user.profile?.timezone || "UTC";
+    const { startOfDay } = getTodayBounds(timeZone);
+    const createJournalResult = await createJournalService(data, userId, startOfDay);
 
     if (createJournalResult.success) {
       return res.status(201).json({
         message: "Journal created successfully.",
-        data: createJournalResult.data,
+        data: {
+          hasJournalToday: true,
+          journal: createJournalResult.data,
+          date: startOfDay.toISOString(),
+          timeZone,
+        },
       });
     }
+
+    return res.status(createJournalResult.statusCode || 400).json({
+      message: createJournalResult.message || "Unable to create journal.",
+    });
   } catch (err) {
     next(err);
   }
 }
 
-export { createJournalController, getTodayJournalStatusController };
+async function createJournalTradeController(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const { journalId } = req.params;
+    const { data } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "User is not signed in.",
+      });
+    }
+
+    const createTradeResult = await createJournalTradeService(journalId, data, userId);
+
+    if (createTradeResult.success) {
+      return res.status(201).json({
+        message: "Trade created successfully.",
+        data: createTradeResult.data,
+      });
+    }
+
+    return res.status(createTradeResult.statusCode || 400).json({
+      message: createTradeResult.message || "Unable to create trade.",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export {
+  createJournalController,
+  createJournalTradeController,
+  getTodayJournalStatusController,
+  getUserJournalsController,
+};

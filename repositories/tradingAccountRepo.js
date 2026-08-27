@@ -15,6 +15,8 @@ export async function createTradingAccount(payload, userId) {
     leverage: payload.leverage,
     currency: payload.currency,
     currentEquity: payload.currentEquity,
+    maxDrawnDown: payload.maxDrawnDown,
+    profitTarget: payload.profitTarget,
     lastSyncedAt,
   };
 
@@ -24,6 +26,8 @@ export async function createTradingAccount(payload, userId) {
 
 
 export async function getUserTradingAccounts(userId) {
-  const tradingAccounts = await TradingAccount.find({ userId });
+  const tradingAccounts = await TradingAccount.find({ userId, isArchived: false }).sort({
+    createdAt: -1,
+  });
   return tradingAccounts;
 }
