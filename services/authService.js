@@ -82,6 +82,7 @@ async function registerService(payload) {
 }
 
 async function loginService(payload) {
+  
   const result = validateLoginInput(payload);
 
   if (!result.isValid) {
@@ -103,7 +104,7 @@ async function loginService(payload) {
   );
   if (!passwordMatches) {
     const error = new Error("Invalid email or password.");
-    error.status = 401;
+    error.status = 403;
     throw error;
   }
 

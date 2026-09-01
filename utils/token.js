@@ -1,6 +1,5 @@
-import jwt from "jsonwebtoken"; 
-import dotenv from "dotenv"
-dotenv.config();
+import "../config/loadEnv.js";
+import jwt from "jsonwebtoken";
 
 const jwtSecret = process.env.JWT_SECRET || "myhub_super_secret_key";
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";

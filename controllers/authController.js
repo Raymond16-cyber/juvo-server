@@ -30,6 +30,7 @@ async function signin(req, res, next) {
     const result = await loginService(req.body);
     
 
+    console.log("Login Result:", result); // Log the result for debugging
     return res.status(200).json({
       message: "Login successful.",
       user: result.user,
@@ -99,14 +100,12 @@ async function generateOtpVerificationToken(req, res, next) {
     }
 
     const result = await generateOtpVerificationTokenService(req.body);
-    console.log(result.otpVerificationCode)
 
-    // Uncomment after network is restored
-    // await sendOtpToEmail(
-    //   req.body.email,
-    //   result.otpVerificationCode,
-    //   "request-reset-password",
-    // );
+    await sendOtpToEmail(
+      req.body.email,
+      result.otpVerificationCode,
+      "request-reset-password",
+    );
 
     return res.status(200).json({
       message:

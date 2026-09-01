@@ -24,6 +24,7 @@ function validateRegisterInput(payload) {
 }
 
 function validateLoginInput(payload) {
+  
   const errors = [];
   const email = (payload.email || "").trim().toLowerCase();
   const password = payload.password || "";
@@ -31,7 +32,7 @@ function validateLoginInput(payload) {
   if (!email) errors.push("Email is required.");
   if (email && !validateEmail(email)) errors.push("Email is invalid.");
   if (!password) errors.push("Password is required.");
-
+  
   return {
     isValid: errors.length === 0,
     errors,

@@ -1,25 +1,53 @@
-import OpenAI from "openai";
+import "../config/loadEnv.js";
+import { GoogleGenAI } from "@google/genai";
 import Conversation from "../models/Conversation.js";
 import Journal from "../models/Journal.js";
+import "../models/Trades.js";
 import User from "../models/User.js";
 import {
   JUVO_CHAT_SYSTEM_INSTRUCTIONS,
   JUVO_JOURNAL_ANALYSIS_INSTRUCTIONS,
 } from "../prompts/aiPrompts.js";
 
-const MODEL = process.env.XAI_MODEL || "grok-4.6";
+const MODEL = "gemini-3.1-flash-lite";
+
+function readApiKey() {
+  const raw = process.env.AI_API_KEY || "";
+  return raw.trim().replace(/^["']|["']$/g, "");
+}
 
 function getClient() {
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = readApiKey();
 
   if (!apiKey) {
     return null;
   }
 
-  return new OpenAI({
-    apiKey,
-    baseURL: "https://api.x.ai/v1",
-  });
+  return new GoogleGenAI({ apiKey });
+}
+
+function readGeminiText(response) {
+  try {
+    const direct = String(response?.text || "").trim();
+    if (direct) return direct;
+  } catch {
+    // Some Gemini responses throw from the text getter. Read parts instead.
+  }
+
+  const parts = response?.candidates?.[0]?.content?.parts || [];
+  return parts
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function geminiErrorMessage(error) {
+  return (
+    error?.error?.message ||
+    error?.message ||
+    "Unable to reach Gemini right now."
+  );
 }
 
 function parseJsonText(text) {
@@ -43,26 +71,83 @@ function parseJsonText(text) {
   }
 }
 
-async function completeWithGrok(input) {
+function toGeminiRequest(messages = []) {
+  const systemParts = [];
+  const contents = [];
+
+  messages.forEach((message) => {
+    const text = String(message.content || "").trim();
+    if (!text) return;
+
+    if (message.role === "system") {
+      systemParts.push(text);
+      return;
+    }
+
+    contents.push({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text }],
+    });
+  });
+
+  return {
+    systemInstruction: systemParts.join("\n\n"),
+    contents,
+  };
+}
+
+async function completeWithGemini(messages) {
   const client = getClient();
 
   if (!client) {
     return {
       success: false,
       statusCode: 503,
-      message: "Juvo AI is not configured. Add XAI_API_KEY on the server.",
+      message: "Juvo AI is not configured. Add AI_API_KEY on the server.",
     };
   }
 
-  const response = await client.responses.create({
-    model: MODEL,
-    input,
-  });
+  const { systemInstruction, contents } = toGeminiRequest(messages);
 
-  return {
-    success: true,
-    text: response.output_text || "",
-  };
+  if (!contents.length) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Message is required.",
+    };
+  }
+
+  try {
+    const response = await client.models.generateContent({
+      model: MODEL,
+      contents,
+      config: {
+        systemInstruction,
+      },
+    });
+
+    const text = readGeminiText(response);
+
+    if (!text) {
+      return {
+        success: false,
+        statusCode: 502,
+        message: "Juvo AI returned an empty reply.",
+      };
+    }
+
+    return {
+      success: true,
+      text,
+    };
+  } catch (error) {
+    console.error("Juvo Gemini error:", geminiErrorMessage(error));
+    return {
+      success: false,
+      statusCode: 502,
+      message: geminiErrorMessage(error),
+    };
+  }
 }
 
 async function buildTraderContext(userId) {
@@ -142,7 +227,7 @@ async function analyzeJournalWithAi(journal) {
     })),
   };
 
-  const result = await completeWithGrok([
+  const result = await completeWithGemini([
     { role: "system", content: JUVO_JOURNAL_ANALYSIS_INSTRUCTIONS },
     { role: "user", content: JSON.stringify(payload) },
   ]);
@@ -239,7 +324,7 @@ async function chatWithJuvoService({ userId, conversationId, message }) {
     content: item.content,
   }));
 
-  const result = await completeWithGrok([
+  const result = await completeWithGemini([
     { role: "system", content: JUVO_CHAT_SYSTEM_INSTRUCTIONS },
     {
       role: "system",

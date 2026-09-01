@@ -1,3 +1,4 @@
+import "./loadEnv.js";
 import mongoose from "mongoose";
 
 
