@@ -113,4 +113,124 @@ function validateTradeInput(payload = {}) {
   };
 }
 
-export { validateJournalInput, validateTradeInput };
+function validateCompleteJournalInput(payload = {}) {
+  const errors = [];
+  const afterTrading = String(payload.afterTrading || "").trim();
+  const confidenceAfter = toOptionalNumber(payload.confidenceAfter);
+  const biggestMistake = String(payload.biggestMistake || "").trim();
+  const biggestWin = String(payload.biggestWin || "").trim();
+  const lessonLearned = String(payload.lessonLearned || "").trim();
+  const improvementsTomorrow = String(payload.improvementsTomorrow || "").trim();
+  const overallThoughts = String(payload.overallThoughts || "").trim();
+  const followedTradingPlan = payload.followedTradingPlan;
+  const followedRiskManagement = payload.followedRiskManagement;
+  const revengeTraded = payload.revengeTraded;
+  const overTraded = payload.overTraded;
+  const respectedStopLoss = payload.respectedStopLoss;
+
+  if (
+    confidenceAfter !== undefined &&
+    (!Number.isFinite(confidenceAfter) || confidenceAfter < 1 || confidenceAfter > 10)
+  ) {
+    errors.push("Confidence after trading must be between 1 and 10.");
+  }
+
+  const booleanFields = {
+    followedTradingPlan,
+    followedRiskManagement,
+    revengeTraded,
+    overTraded,
+    respectedStopLoss,
+  };
+
+  Object.entries(booleanFields).forEach(([key, value]) => {
+    if (value !== undefined && typeof value !== "boolean") {
+      errors.push(`${key} must be true or false.`);
+    }
+  });
+
+  const disciplineFlags = [
+    followedTradingPlan === true,
+    followedRiskManagement === true,
+    revengeTraded === false,
+    overTraded === false,
+    respectedStopLoss === true,
+  ];
+  const answeredFlags = [
+    followedTradingPlan,
+    followedRiskManagement,
+    revengeTraded,
+    overTraded,
+    respectedStopLoss,
+  ].filter((value) => typeof value === "boolean").length;
+  const score =
+    answeredFlags === 0
+      ? undefined
+      : Math.round((disciplineFlags.filter(Boolean).length / 5) * 100);
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    data: {
+      psychology: {
+        ...(afterTrading ? { afterTrading } : {}),
+        ...(confidenceAfter !== undefined ? { confidenceAfter } : {}),
+      },
+      review: {
+        ...(biggestMistake ? { biggestMistake } : {}),
+        ...(biggestWin ? { biggestWin } : {}),
+        ...(lessonLearned ? { lessonLearned } : {}),
+        ...(improvementsTomorrow ? { improvementsTomorrow } : {}),
+        ...(overallThoughts ? { overallThoughts } : {}),
+      },
+      discipline: {
+        ...(typeof followedTradingPlan === "boolean" ? { followedTradingPlan } : {}),
+        ...(typeof followedRiskManagement === "boolean"
+          ? { followedRiskManagement }
+          : {}),
+        ...(typeof revengeTraded === "boolean" ? { revengeTraded } : {}),
+        ...(typeof overTraded === "boolean" ? { overTraded } : {}),
+        ...(typeof respectedStopLoss === "boolean" ? { respectedStopLoss } : {}),
+        ...(score !== undefined ? { score } : {}),
+      },
+    },
+  };
+}
+
+function validateCloseTradeInput(payload = {}) {
+  const errors = [];
+  const exitPrice = Number(payload.exitPrice);
+  const profitLoss = toOptionalNumber(payload.profitLoss);
+  const pips = toOptionalNumber(payload.pips);
+  const achievedRR = toOptionalNumber(payload.achievedRR);
+  const status = String(payload.status || "Closed").trim();
+  const notes = String(payload.notes || "").trim();
+
+  if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
+    errors.push("Exit price must be greater than zero.");
+  }
+  if (!["Closed", "Breakeven", "Cancelled"].includes(status)) {
+    errors.push("Close status is invalid.");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    data: {
+      exitPrice,
+      status,
+      closedAt: payload.closedAt ? new Date(payload.closedAt) : new Date(),
+      ...(profitLoss !== undefined ? { profitLoss } : {}),
+      ...(pips !== undefined ? { pips } : {}),
+      ...(achievedRR !== undefined ? { achievedRR } : {}),
+      ...(notes ? { notes } : {}),
+    },
+  };
+}
+
+export {
+  validateCloseTradeInput,
+  validateCompleteJournalInput,
+  validateJournalInput,
+  validateTradeInput,
+};

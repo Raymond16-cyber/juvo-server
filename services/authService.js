@@ -22,12 +22,21 @@ import {
 import { sendWelcomeNotification } from "../services/notificationService.js";
 
 function sanitizeUser(user) {
+  const json = typeof user.toJSON === "function" ? user.toJSON() : user;
+
   return {
-    id: user.id,
-    fullName: user.fullName,
-    email: user.email,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
+    id: json.id || json._id,
+    fullName: json.fullName,
+    email: json.email,
+    avatar: json.avatar || null,
+    authProvider: json.authProvider || "local",
+    profile: json.profile,
+    preferences: json.preferences,
+    subscription: json.subscription,
+    stats: json.stats,
+    onboarding: json.onboarding,
+    createdAt: json.createdAt,
+    updatedAt: json.updatedAt,
   };
 }
 
@@ -125,7 +134,7 @@ async function appleAuthService(payload) {
   if (!user) {
     created = true;
     user = await createUser({
-      fullName: result.data.fullName || "MyHub User",
+      fullName: result.data.fullName || "JUVO Trader",
       email: result.data.email || null,
       authProvider: "apple",
       providerId: result.data.appleUserId,
@@ -351,6 +360,35 @@ async function resetPasswordService(payload) {
 
 async function editUserInfoService(payload) {}
 
+async function updatePreferencesService(userId, payload = {}) {
+  const updates = { lastActiveAt: new Date() };
+  const theme = String(payload.theme || "").trim();
+  const preferredCurrency = String(payload.preferredCurrency || "").trim();
+  const weekStartsOn = String(payload.weekStartsOn || "").trim();
+  const reminderTime = String(payload.reminderTime || "").trim();
+  const fullName = String(payload.fullName || "").trim();
+  const country = String(payload.country || "").trim();
+  const timezone = String(payload.timezone || "").trim();
+
+  if (theme && ["light", "dark", "system"].includes(theme)) {
+    updates["preferences.theme"] = theme;
+  }
+  if (preferredCurrency) updates["preferences.preferredCurrency"] = preferredCurrency;
+  if (weekStartsOn && ["sunday", "monday"].includes(weekStartsOn)) {
+    updates["preferences.weekStartsOn"] = weekStartsOn;
+  }
+  if (typeof payload.notificationsEnabled === "boolean") {
+    updates["preferences.notifications.enabled"] = payload.notificationsEnabled;
+  }
+  if (reminderTime) updates["preferences.notifications.reminderTime"] = reminderTime;
+  if (fullName) updates.fullName = fullName;
+  if (country) updates["profile.country"] = country;
+  if (timezone) updates["profile.timezone"] = timezone;
+
+  const user = await updateUser(userId, { $set: updates });
+  return { user: sanitizeUser(user) };
+}
+
 export {
   registerService,
   loginService,
@@ -358,4 +396,6 @@ export {
   generateOtpVerificationTokenService,
   verifyOtpVerificationCodeService,
   resetPasswordService,
+  updatePreferencesService,
+  sanitizeUser,
 };

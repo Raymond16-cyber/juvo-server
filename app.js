@@ -6,6 +6,9 @@ import { notFound, errorHandler } from "./middleware/errorHandler.js";
 import onboardRoutes from "./routes/onboardRoute.js";
 import tradingAccountRoutes from "./routes/tradingaccount.route.js";
 import journalRoutes from "./routes/journal.route.js";
+import aiRoutes from "./routes/ai.route.js";
+import analyticsRoutes from "./routes/analytics.route.js";
+import goalRoutes from "./routes/goal.route.js";
 
 const app = express();
 const clientOrigin = process.env.CLIENT_ORIGIN || "*";
@@ -20,13 +23,16 @@ app.use(
 app.use(express.json());
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", message: "MyHub backend is running." });
+  res.json({ status: "ok", message: "JUVO backend is running." });
 });
 
 app.use("/api/auth", authRoutes);
 app.use("/api/onboarding", onboardRoutes);
 app.use("/api/trading-account", tradingAccountRoutes);
 app.use("/api/journal", journalRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/goals", goalRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

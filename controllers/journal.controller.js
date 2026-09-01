@@ -1,65 +1,13 @@
 import {
+  closeJournalTradeService,
+  completeJournalService,
   createJournalService,
   createJournalTradeService,
+  getJournalByIdService,
   getTodayJournalStatusService,
   getUserJournalsService,
 } from "../services/journal.service.js";
-
-function getZonedDateParts(date, timeZone) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-
-  return Object.fromEntries(
-    formatter
-      .formatToParts(date)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, Number(part.value)]),
-  );
-}
-
-function zonedTimeToUtc({ year, month, day, hour, minute, second, millisecond }, timeZone) {
-  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-  const parts = Object.fromEntries(
-    formatter
-      .formatToParts(new Date(utcGuess))
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, Number(part.value)]),
-  );
-  const zonedAsUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-    millisecond,
-  );
-
-  return new Date(utcGuess - (zonedAsUtc - utcGuess));
-}
-
-function getTodayBounds(timeZone = "UTC") {
-  const today = getZonedDateParts(new Date(), timeZone);
-
-  return {
-    startOfDay: zonedTimeToUtc({ ...today, hour: 0, minute: 0, second: 0, millisecond: 0 }, timeZone),
-    endOfDay: zonedTimeToUtc({ ...today, hour: 23, minute: 59, second: 59, millisecond: 999 }, timeZone),
-  };
-}
+import { getTodayBounds, getUserTimeZone } from "../utils/timezone.js";
 
 async function getTodayJournalStatusController(req, res, next) {
   try {
@@ -69,7 +17,7 @@ async function getTodayJournalStatusController(req, res, next) {
         message: "User is not signed in.",
       });
     }
-    const timeZone = req.user.profile?.timezone || "UTC";
+    const timeZone = getUserTimeZone(req.user);
     const { startOfDay, endOfDay } = getTodayBounds(timeZone);
 
     const journalStatus = await getTodayJournalStatusService(
@@ -123,6 +71,26 @@ async function getUserJournalsController(req, res, next) {
   }
 }
 
+async function getJournalByIdController(req, res, next) {
+  try {
+    const result = await getJournalByIdService(
+      req.params.journalId,
+      req.user.id,
+    );
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({ message: result.message });
+    }
+
+    return res.status(200).json({
+      message: "Journal retrieved successfully.",
+      data: result.data,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function createJournalController(req, res, next) {
   try {
     const userId = req.user.id;
@@ -133,9 +101,13 @@ async function createJournalController(req, res, next) {
       });
     }
 
-    const timeZone = req.user.profile?.timezone || "UTC";
+    const timeZone = getUserTimeZone(req.user);
     const { startOfDay } = getTodayBounds(timeZone);
-    const createJournalResult = await createJournalService(data, userId, startOfDay);
+    const createJournalResult = await createJournalService(
+      data,
+      userId,
+      startOfDay,
+    );
 
     if (createJournalResult.success) {
       return res.status(201).json({
@@ -169,7 +141,11 @@ async function createJournalTradeController(req, res, next) {
       });
     }
 
-    const createTradeResult = await createJournalTradeService(journalId, data, userId);
+    const createTradeResult = await createJournalTradeService(
+      journalId,
+      data,
+      userId,
+    );
 
     if (createTradeResult.success) {
       return res.status(201).json({
@@ -186,9 +162,59 @@ async function createJournalTradeController(req, res, next) {
   }
 }
 
+async function closeJournalTradeController(req, res, next) {
+  try {
+    const { journalId, tradeId } = req.params;
+    const { data } = req.body;
+    const result = await closeJournalTradeService(
+      journalId,
+      tradeId,
+      data || req.body,
+      req.user.id,
+    );
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({ message: result.message });
+    }
+
+    return res.status(200).json({
+      message: "Trade closed successfully.",
+      data: result.data,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function completeJournalController(req, res, next) {
+  try {
+    const { journalId } = req.params;
+    const { data } = req.body;
+    const result = await completeJournalService(
+      journalId,
+      data || req.body,
+      req.user.id,
+    );
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({ message: result.message });
+    }
+
+    return res.status(200).json({
+      message: "Journal completed successfully.",
+      data: result.data,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export {
+  closeJournalTradeController,
+  completeJournalController,
   createJournalController,
   createJournalTradeController,
+  getJournalByIdController,
   getTodayJournalStatusController,
   getUserJournalsController,
 };

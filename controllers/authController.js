@@ -5,6 +5,8 @@ import {
   generateOtpVerificationTokenService,
   verifyOtpVerificationCodeService,
   resetPasswordService,
+  updatePreferencesService,
+  sanitizeUser,
 } from "../services/authService.js";
 import { sendOtpToEmail } from "../utils/email.js";
 import User from "../models/User.js";
@@ -58,8 +60,29 @@ async function appleAuth(req, res, next) {
 
 async function me(req, res) {
   return res.status(200).json({
-    user: req.user,
+    user: sanitizeUser(req.user),
   });
+}
+
+async function logout(req, res) {
+  return res.status(200).json({
+    message: "Signed out successfully.",
+  });
+}
+
+async function updatePreferences(req, res, next) {
+  try {
+    const result = await updatePreferencesService(
+      req.user.id,
+      req.body?.data || req.body,
+    );
+    return res.status(200).json({
+      message: "Preferences updated successfully.",
+      user: result.user,
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 async function generateOtpVerificationToken(req, res, next) {
@@ -174,6 +197,8 @@ export {
   signin,
   appleAuth,
   me,
+  logout,
+  updatePreferences,
   generateOtpVerificationToken,
   verifyOtpVerificationCode,
   resetPassword,

@@ -4,6 +4,8 @@ import {
   signin,
   appleAuth,
   me,
+  logout,
+  updatePreferences,
   generateOtpVerificationToken,
   verifyOtpVerificationCode,
   resetPassword,
@@ -21,6 +23,8 @@ authRoutes.post("/sign-up", signup);
 authRoutes.post("/sign-in", signin);
 authRoutes.post("/apple", appleAuth);
 authRoutes.get("/me", requireAuth, me);
+authRoutes.post("/logout", requireAuth, logout);
+authRoutes.patch("/preferences", requireAuth, updatePreferences);
 authRoutes.post("/onboarding", requireAuth, onBoardingUser);
 authRoutes.post(
   "/request-reset-password",
