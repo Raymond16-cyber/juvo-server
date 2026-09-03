@@ -149,8 +149,11 @@ async function createJournalTradeController(req, res, next) {
 
     if (createTradeResult.success) {
       return res.status(201).json({
-        message: "Trade created successfully.",
+        message: createTradeResult.attachedToAccount
+          ? "Trade created and added to the active trading account."
+          : "Trade created successfully.",
         data: createTradeResult.data,
+        attachedToAccount: Boolean(createTradeResult.attachedToAccount),
       });
     }
 
@@ -177,9 +180,18 @@ async function closeJournalTradeController(req, res, next) {
       return res.status(result.statusCode || 400).json({ message: result.message });
     }
 
+    const accountStatus = result.tradingAccount?.status;
+    const accountMessage =
+      accountStatus === "Passed"
+        ? "Trade closed. This trading account has passed its profit target."
+        : accountStatus === "Breached"
+          ? "Trade closed. This trading account has been breached."
+          : "Trade closed successfully.";
+
     return res.status(200).json({
-      message: "Trade closed successfully.",
+      message: accountMessage,
       data: result.data,
+      tradingAccount: result.tradingAccount,
     });
   } catch (err) {
     next(err);

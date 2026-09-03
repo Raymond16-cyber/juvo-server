@@ -5,6 +5,12 @@ import TradingAccount from "../models/tradingAccounts.js";
 import User from "../models/User.js";
 import { analyzeJournalWithAi } from "./ai.service.js";
 import {
+  applyClosedTradeToAccount,
+  attachTradeToActiveAccount,
+  isTradingAccountInPlay,
+  setActiveTradingAccount,
+} from "./tradingAccountService.js";
+import {
   validateCloseTradeInput,
   validateCompleteJournalInput,
   validateJournalInput,
@@ -13,6 +19,55 @@ import {
 
 const JOURNAL_LIST_SELECT =
   "_id journalDate status tradingAccount trades psychology review discipline ai createdAt updatedAt";
+
+const TRADE_LIST_SELECT =
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount";
+
+const ACCOUNT_LIST_SELECT =
+  "accountName accountNumber broker accountType currency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
+
+function populateTrades(query) {
+  return query.populate({
+    path: "trades",
+    select: TRADE_LIST_SELECT,
+    populate: {
+      path: "tradingAccount",
+      select: "accountName broker currency status isActive",
+    },
+  });
+}
+
+async function findDailyJournal(userId, journalDate) {
+  return Journal.findOne({ user: userId, journalDate });
+}
+
+async function resolveInPlayTradingAccount(userId, preferredAccountId) {
+  if (preferredAccountId) {
+    const preferred = await TradingAccount.findOne({
+      _id: preferredAccountId,
+      userId,
+      isArchived: false,
+    });
+    if (preferred && isTradingAccountInPlay(preferred)) {
+      return preferred;
+    }
+  }
+
+  const activeAccount = await TradingAccount.findOne({
+    userId,
+    isActive: true,
+    isArchived: false,
+  });
+  if (activeAccount && isTradingAccountInPlay(activeAccount)) {
+    return activeAccount;
+  }
+
+  return TradingAccount.findOne({
+    userId,
+    isArchived: false,
+    $or: [{ status: "Active" }, { status: { $exists: false } }],
+  }).sort({ createdAt: -1 });
+}
 
 function summarizeTrades(trades = []) {
   const totalProfitLoss = trades.reduce(
@@ -41,31 +96,23 @@ function withJournalStats(journal) {
 }
 
 async function populateJournal(journalId) {
-  return Journal.findById(journalId)
-    .select(JOURNAL_LIST_SELECT)
-    .populate(
-      "tradingAccount",
-      "accountName accountNumber broker accountType currency currentBalance currentEquity",
-    )
-    .populate(
-      "trades",
-      "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt",
-    )
-    .lean();
+  return populateTrades(
+    Journal.findById(journalId)
+      .select(JOURNAL_LIST_SELECT)
+      .populate("tradingAccount", ACCOUNT_LIST_SELECT),
+  ).lean();
 }
 
 async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
   try {
-    const journal = await Journal.findOne({
-      user: userId,
-      journalDate: { $gte: startOfDay, $lte: endOfDay },
-    })
-      .select("_id journalDate status tradingAccount trades psychology createdAt updatedAt")
-      .populate(
-        "tradingAccount",
-        "accountName accountNumber broker accountType currency currentBalance currentEquity",
-      )
-      .lean();
+    const journal = await populateTrades(
+      Journal.findOne({
+        user: userId,
+        journalDate: { $gte: startOfDay, $lte: endOfDay },
+      })
+        .select("_id journalDate status tradingAccount trades psychology createdAt updatedAt")
+        .populate("tradingAccount", ACCOUNT_LIST_SELECT),
+    ).lean();
 
     return {
       success: true,
@@ -86,18 +133,12 @@ async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
 
 async function getUserJournalsService(userId) {
   try {
-    const journals = await Journal.find({ user: userId })
-      .select(JOURNAL_LIST_SELECT)
-      .populate(
-        "tradingAccount",
-        "accountName accountNumber broker accountType currency currentBalance currentEquity",
-      )
-      .populate(
-        "trades",
-        "symbol instrument direction status profitLoss plannedRR achievedRR session openedAt closedAt createdAt notes entryPrice exitPrice lotSize riskPercentage",
-      )
-      .sort({ journalDate: -1, createdAt: -1 })
-      .lean();
+    const journals = await populateTrades(
+      Journal.find({ user: userId })
+        .select(JOURNAL_LIST_SELECT)
+        .populate("tradingAccount", ACCOUNT_LIST_SELECT)
+        .sort({ journalDate: -1, createdAt: -1 }),
+    ).lean();
 
     return {
       success: true,
@@ -119,30 +160,50 @@ async function getJournalByIdService(journalId, userId) {
 }
 
 async function createJournalService(data, userId, journalDate) {
+  const existingJournal = await findDailyJournal(userId, journalDate);
+  if (existingJournal) {
+    const populated = await populateJournal(existingJournal._id);
+    return {
+      success: true,
+      data: withJournalStats(populated),
+    };
+  }
+
   const result = validateJournalInput(data);
 
   if (!result.isValid) {
     return { success: false, statusCode: 400, message: result.errors.join(" ") };
   }
 
-  const tradingAccount = await TradingAccount.findOne({
-    _id: result.data.tradingAccount,
+  const tradingAccount = await resolveInPlayTradingAccount(
     userId,
-    isArchived: false,
-  });
+    result.data.tradingAccount,
+  );
 
   if (!tradingAccount) {
     return {
       success: false,
       statusCode: 404,
-      message: "Create or select a trading account before starting your day.",
+      message: "Create a trading account before starting your day.",
     };
   }
+
+  if (!isTradingAccountInPlay(tradingAccount)) {
+    return {
+      success: false,
+      statusCode: 400,
+      message:
+        "This trading account has passed or been breached. Create a new account before starting your day.",
+    };
+  }
+
+  await setActiveTradingAccount(userId, tradingAccount._id);
 
   try {
     const journal = await Journal.create({
       user: userId,
       ...result.data,
+      tradingAccount: tradingAccount._id,
       journalDate,
     });
 
@@ -150,13 +211,7 @@ async function createJournalService(data, userId, journalDate) {
       $inc: { "stats.totalJournals": 1, "stats.currentJournalStreak": 1 },
     });
 
-    const populatedJournal = await Journal.findById(journal._id)
-      .select("_id journalDate status tradingAccount trades psychology createdAt updatedAt")
-      .populate(
-        "tradingAccount",
-        "accountName accountNumber broker accountType currency currentBalance currentEquity",
-      )
-      .lean();
+    const populatedJournal = await populateJournal(journal._id);
 
     return {
       success: true,
@@ -167,24 +222,13 @@ async function createJournalService(data, userId, journalDate) {
     };
   } catch (err) {
     if (err.code === 11000) {
-      const existingJournal = await Journal.findOne({
-        user: userId,
-        tradingAccount: result.data.tradingAccount,
-        journalDate,
-      })
-        .select("_id journalDate status tradingAccount trades psychology createdAt updatedAt")
-        .populate(
-          "tradingAccount",
-          "accountName accountNumber broker accountType currency currentBalance currentEquity",
-        )
-        .lean();
-
+      const duplicate = await findDailyJournal(userId, journalDate);
+      const populated = duplicate ? await populateJournal(duplicate._id) : null;
       return {
         success: true,
-        data: {
-          ...existingJournal,
-          tradesCount: existingJournal?.trades?.length || 0,
-        },
+        data: populated
+          ? withJournalStats(populated)
+          : { tradesCount: 0 },
       };
     }
 
@@ -209,15 +253,43 @@ async function createJournalTradeService(journalId, data, userId) {
     };
   }
 
+  const tradingAccount = await resolveInPlayTradingAccount(
+    userId,
+    data.tradingAccount || journal.tradingAccount,
+  );
+
+  if (!tradingAccount) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Create a trading account before logging a trade.",
+    };
+  }
+
+  if (!isTradingAccountInPlay(tradingAccount)) {
+    return {
+      success: false,
+      statusCode: 400,
+      message:
+        "This trading account has passed or been breached. Create a new account before taking another trade. Today's journal stays open.",
+    };
+  }
+
+  if (tradingAccount.isActive !== true) {
+    await setActiveTradingAccount(userId, tradingAccount._id);
+    tradingAccount.isActive = true;
+  }
+
   const trade = await Trade.create({
     ...result.data,
     user: userId,
     journal: journal._id,
-    tradingAccount: journal.tradingAccount,
+    tradingAccount: tradingAccount._id,
   });
 
   journal.trades.push(trade._id);
   await journal.save();
+  await attachTradeToActiveAccount(tradingAccount, trade._id);
   await User.findByIdAndUpdate(userId, {
     $inc: { "stats.totalTrades": 1 },
   });
@@ -225,6 +297,7 @@ async function createJournalTradeService(journalId, data, userId) {
   return {
     success: true,
     data: trade,
+    attachedToAccount: Boolean(tradingAccount.isActive),
   };
 }
 
@@ -270,6 +343,14 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
     return { success: false, statusCode: 404, message: "Trade not found." };
   }
 
+  if (trade.status !== "Open") {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "This trade is already closed.",
+    };
+  }
+
   const estimated = estimateProfitLoss(trade, result.data.exitPrice);
   const profitLoss =
     result.data.profitLoss !== undefined
@@ -297,19 +378,17 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
   }
   await trade.save();
 
-  if (profitLoss) {
-    await TradingAccount.findOneAndUpdate(
-      { _id: journal.tradingAccount, userId },
-      {
-        $inc: {
-          currentBalance: profitLoss,
-          currentEquity: profitLoss,
-        },
-      },
-    );
-  }
+  const tradingAccount = await applyClosedTradeToAccount({
+    accountId: trade.tradingAccount || journal.tradingAccount,
+    userId,
+    profitLoss,
+  });
 
-  return { success: true, data: trade };
+  return {
+    success: true,
+    data: trade,
+    tradingAccount,
+  };
 }
 
 async function completeJournalService(journalId, data, userId) {

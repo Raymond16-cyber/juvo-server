@@ -30,7 +30,6 @@ async function signin(req, res, next) {
     const result = await loginService(req.body);
     
 
-    console.log("Login Result:", result); // Log the result for debugging
     return res.status(200).json({
       message: "Login successful.",
       user: result.user,

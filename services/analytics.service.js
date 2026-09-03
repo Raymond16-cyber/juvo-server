@@ -1,5 +1,6 @@
 import BehaviouralInsight from "../models/behaviouralInsights.js";
 import Journal from "../models/Journal.js";
+import Trade from "../models/Trades.js";
 import TradingAccount from "../models/tradingAccounts.js";
 
 function percent(part, whole) {
@@ -11,38 +12,79 @@ function round(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
 }
 
-async function getAnalyticsService(userId) {
-  const [journals, accounts, storedInsights] = await Promise.all([
-    Journal.find({ user: userId })
-      .select(
-        "journalDate status psychology review discipline ai trades tradingAccount createdAt",
+async function getAnalyticsService(userId, tradingAccountId) {
+  const accounts = await TradingAccount.find({
+    userId,
+    isArchived: false,
+  }).lean();
+  const selectedAccount = tradingAccountId
+    ? accounts.find(
+        (account) => String(account._id) === String(tradingAccountId),
       )
-      .populate(
-        "trades",
-        "symbol instrument direction status profitLoss plannedRR achievedRR session openedAt closedAt riskPercentage",
-      )
-      .populate("tradingAccount", "accountName broker currency currentBalance")
-      .sort({ journalDate: 1 })
-      .lean(),
-    TradingAccount.find({ userId, isArchived: false }).lean(),
-    BehaviouralInsight.find({ user: userId })
-      .sort({ createdAt: -1 })
-      .limit(8)
-      .lean(),
-  ]);
+    : accounts.find((account) => account.isActive) || accounts[0];
+
+  const journalQuery = { user: userId };
+  if (selectedAccount) {
+    const accountTradeJournalIds = await Trade.find({
+      user: userId,
+      tradingAccount: selectedAccount._id,
+    }).distinct("journal");
+    journalQuery.$or = [
+      { tradingAccount: selectedAccount._id },
+      { _id: { $in: accountTradeJournalIds } },
+    ];
+  }
+
+  const journals = await Journal.find(journalQuery)
+    .select(
+      "journalDate status psychology review discipline ai trades tradingAccount createdAt",
+    )
+    .populate(
+      "trades",
+      "symbol instrument direction status profitLoss plannedRR achievedRR session openedAt closedAt riskPercentage tradingAccount",
+    )
+    .populate("tradingAccount", "accountName broker currency currentBalance")
+    .sort({ journalDate: 1 })
+    .lean();
+
+  const journalIds = journals.map((journal) => journal._id);
+  const storedInsights = await BehaviouralInsight.find({
+    user: userId,
+    ...(journalIds.length
+      ? { journal: { $in: journalIds } }
+      : { _id: { $exists: false } }),
+  })
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .lean();
 
   const trades = journals.flatMap((journal) =>
-    (journal.trades || []).map((trade) => ({
-      ...trade,
-      journalDate: journal.journalDate,
-      journalId: journal._id,
-    })),
+    (journal.trades || [])
+      .filter(
+        (trade) =>
+          !selectedAccount ||
+          String(
+            trade.tradingAccount?._id ||
+              trade.tradingAccount ||
+              journal.tradingAccount?._id ||
+              journal.tradingAccount,
+          ) === String(selectedAccount._id),
+      )
+      .map((trade) => ({
+        ...trade,
+        journalDate: journal.journalDate,
+        journalId: journal._id,
+      })),
   );
   const closedTrades = trades.filter(
     (trade) => trade.status === "Closed" || trade.status === "Breakeven",
   );
-  const wins = closedTrades.filter((trade) => Number(trade.profitLoss || 0) > 0);
-  const losses = closedTrades.filter((trade) => Number(trade.profitLoss || 0) < 0);
+  const wins = closedTrades.filter(
+    (trade) => Number(trade.profitLoss || 0) > 0,
+  );
+  const losses = closedTrades.filter(
+    (trade) => Number(trade.profitLoss || 0) < 0,
+  );
   const netPnl = trades.reduce(
     (total, trade) => total + Number(trade.profitLoss || 0),
     0,
@@ -55,13 +97,18 @@ async function getAnalyticsService(userId) {
       ) / closedTrades.length
     : 0;
   const avgRisk = trades.length
-    ? trades.reduce((total, trade) => total + Number(trade.riskPercentage || 0), 0) /
-      trades.length
+    ? trades.reduce(
+        (total, trade) => total + Number(trade.riskPercentage || 0),
+        0,
+      ) / trades.length
     : 0;
 
   const bySymbol = {};
   const bySession = {};
-  const byDirection = { long: { trades: 0, pnl: 0 }, short: { trades: 0, pnl: 0 } };
+  const byDirection = {
+    long: { trades: 0, pnl: 0 },
+    short: { trades: 0, pnl: 0 },
+  };
 
   trades.forEach((trade) => {
     const symbol = trade.symbol || "UNKNOWN";
@@ -81,9 +128,19 @@ async function getAnalyticsService(userId) {
     byDirection[direction].pnl += Number(trade.profitLoss || 0);
   });
 
-  let running = 0;
+  let running = Number(selectedAccount?.initialBalance || 0);
   const equityCurve = journals.map((journal) => {
-    const dayPnl = (journal.trades || []).reduce(
+    const journalTrades = (journal.trades || []).filter(
+      (trade) =>
+        !selectedAccount ||
+        String(
+          trade.tradingAccount?._id ||
+            trade.tradingAccount ||
+            journal.tradingAccount?._id ||
+            journal.tradingAccount,
+        ) === String(selectedAccount._id),
+    );
+    const dayPnl = journalTrades.reduce(
       (total, trade) => total + Number(trade.profitLoss || 0),
       0,
     );
@@ -96,7 +153,7 @@ async function getAnalyticsService(userId) {
       }).format(new Date(journal.journalDate)),
       pnl: round(dayPnl),
       equity: round(running),
-      trades: journal.trades?.length || 0,
+      trades: journalTrades.length,
     };
   });
 
@@ -137,11 +194,12 @@ async function getAnalyticsService(userId) {
     },
     {
       title: "Session quality",
-      body:
-        Object.values(bySession).sort((a, b) => b.pnl - a.pnl)[0]?.session
-          ? `${Object.values(bySession).sort((a, b) => b.pnl - a.pnl)[0].session} is your strongest session by net P/L.`
-          : "Log session tags on trades so Juvo can rank your windows.",
-      score: Math.round(avgDiscipline || percent(wins.length, closedTrades.length || 1)),
+      body: Object.values(bySession).sort((a, b) => b.pnl - a.pnl)[0]?.session
+        ? `${Object.values(bySession).sort((a, b) => b.pnl - a.pnl)[0].session} is your strongest session by net P/L.`
+        : "Log session tags on trades so Juvo can rank your windows.",
+      score: Math.round(
+        avgDiscipline || percent(wins.length, closedTrades.length || 1),
+      ),
       category: "session",
     },
   ];
@@ -158,14 +216,24 @@ async function getAnalyticsService(userId) {
       }))
     : computedInsights;
 
-  const startingBalance = accounts.reduce(
-    (total, account) => total + Number(account.currentBalance || 0),
-    0,
+  const startingBalance = Number(
+    selectedAccount?.currentBalance || selectedAccount?.initialBalance || 0,
   );
 
   return {
     success: true,
     data: {
+      currency: selectedAccount?.currency || "USD",
+      tradingAccount: selectedAccount
+        ? {
+            _id: selectedAccount._id,
+            accountName: selectedAccount.accountName,
+            broker: selectedAccount.broker,
+            currency: selectedAccount.currency,
+            status: selectedAccount.status || "Active",
+            isActive: Boolean(selectedAccount.isActive),
+          }
+        : null,
       summary: {
         journals: journals.length,
         trades: trades.length,
@@ -216,6 +284,9 @@ async function getAnalyticsService(userId) {
         profitTarget: account.profitTarget,
         maxDrawnDown: account.maxDrawnDown,
         isConnected: account.isConnected,
+        isActive: Boolean(account.isActive),
+        status: account.status || "Active",
+        tradesCount: account.trades?.length || 0,
       })),
       startingBalance: round(startingBalance),
     },

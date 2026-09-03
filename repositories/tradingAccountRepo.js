@@ -17,6 +17,9 @@ export async function createTradingAccount(payload, userId) {
     currentEquity: payload.currentEquity,
     maxDrawnDown: payload.maxDrawnDown,
     profitTarget: payload.profitTarget,
+    isActive: Boolean(payload.isActive),
+    status: payload.status || "Active",
+    trades: [],
     lastSyncedAt,
   };
 

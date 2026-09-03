@@ -27,7 +27,6 @@ const tradingPlanSchema = new mongoose.Schema({
     currentBalance: {
         type: Number,
         required: true,
-        min: 0,
     },
     userId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -52,7 +51,6 @@ const tradingPlanSchema = new mongoose.Schema({
     currentEquity: {
         type: Number,
         required: true,
-        min: 0,
     },
     maxDrawnDown: {    // Maximum Drawdown in percentage
         type: Number,
@@ -67,10 +65,32 @@ const tradingPlanSchema = new mongoose.Schema({
     isConnected: {
         type: Boolean,
         default: false,
-    },isArchived: {
+    },
+    isArchived: {
         type: Boolean,
         default: false,
     },
+    isActive: {
+        type: Boolean,
+        default: false,
+        index: true,
+    },
+    status: {
+        type: String,
+        enum: ["Active", "Passed", "Breached"],
+        default: "Active",
+        index: true,
+    },
+    statusUpdatedAt: {
+        type: Date,
+        default: null,
+    },
+    trades: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Trade",
+        },
+    ],
     lastSyncedAt: {
         type: Date,
         default: null,
@@ -98,6 +118,9 @@ const tradingPlanSchema = new mongoose.Schema({
 }, {
     timestamps: true,
 });
+
+tradingPlanSchema.index({ userId: 1, isActive: 1 });
+tradingPlanSchema.index({ userId: 1, status: 1 });
 
 const TradingAccount = mongoose.model("TradingAccount", tradingPlanSchema);
 

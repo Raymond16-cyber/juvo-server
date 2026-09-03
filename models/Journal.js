@@ -119,7 +119,6 @@ const journalSchema = new mongoose.Schema(
 journalSchema.index(
   {
     user: 1,
-    tradingAccount: 1,
     journalDate: 1,
   },
   {
