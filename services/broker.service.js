@@ -6,6 +6,7 @@ import {
   brokerWarn,
   redactSecret,
 } from "../utils/brokerDebug.js";
+import { getCTraderAccountsByAccessToken } from "../brokers/ctrader/ctrader.service.js";
 
 const CTRADER_AUTHORIZE_URL =
   "https://id.ctrader.com/my/settings/openapi/grantingaccess/";
@@ -27,7 +28,9 @@ function getCTraderConfig() {
   const clientSecret = process.env.CTRADER_CLIENT_SECRET;
   const redirectUri = process.env.CTRADER_REDIRECT_URI;
   const clientOrigin =
-    process.env.CLIENT_ORIGIN || process.env.CLIENT_URL || "http://localhost:3000";
+    process.env.CLIENT_ORIGIN ||
+    process.env.CLIENT_URL ||
+    "http://localhost:3000";
 
   brokerLog("config", {
     hasClientId: Boolean(clientId),
@@ -280,8 +283,46 @@ async function saveCTraderTokens({ userId, connectionId, tokens }) {
     );
   }
 
+  let accounts = [];
+  try {
+    const { clientId, clientSecret } = getCTraderConfig();
+    accounts = await getCTraderAccountsByAccessToken(tokens.accessToken, {
+      clientId,
+      clientSecret,
+    });
+  } catch (error) {
+    brokerError("connection:accounts:error", error, {
+      userId: userId ? String(userId) : null,
+      connectionId: connectionId || null,
+    });
+    throw httpError(
+      error.message ||
+        "cTrader OAuth succeeded, but JUVO could not retrieve the authorized account list.",
+      error.status || 502,
+    );
+  }
+
+  const primaryAccount = accounts[0] || null;
+
+  if (!primaryAccount?.ctidTraderAccountId) {
+    throw httpError(
+      "cTrader returned no authorized trading accounts for this access token.",
+      400,
+    );
+  }
+
   connection.provider = "ctrader";
   connection.platform = "ctrader";
+  connection.externalAccountId = primaryAccount?.ctidTraderAccountId;
+  connection.accountNumber =
+    primaryAccount?.accountNumber || primaryAccount?.ctidTraderAccountId;
+  connection.brokerName = primaryAccount?.brokerTitle || "cTrader";
+  connection.accountType =
+    typeof primaryAccount?.isLive === "boolean"
+      ? primaryAccount.isLive
+        ? "live"
+        : "demo"
+      : undefined;
   connection.accessToken = tokens.accessToken;
   connection.refreshToken = tokens.refreshToken;
   connection.tokenExpiresAt = tokens.tokenExpiresAt;
@@ -308,9 +349,17 @@ async function saveCTraderTokens({ userId, connectionId, tokens }) {
     userId: String(connection.userId),
     status: connection.status,
     tokenExpiresAt: connection.tokenExpiresAt,
+    ctidTraderAccountIds: accounts.map((account) => account.ctidTraderAccountId),
   });
 
-  return connection.toJSON();
+  return {
+    ...connection.toJSON(),
+    ctidTraderAccounts: accounts.map(({ ctidTraderAccountId, isLive, brokerTitle }) => ({
+      ctidTraderAccountId,
+      isLive,
+      brokerTitle,
+    })),
+  };
 }
 
 function getCallbackIdentity({ code, state, error, errorDescription, req }) {
@@ -324,10 +373,7 @@ function getCallbackIdentity({ code, state, error, errorDescription, req }) {
   });
 
   if (error) {
-    throw httpError(
-      errorDescription || error || "cTrader denied access.",
-      400,
-    );
+    throw httpError(errorDescription || error || "cTrader denied access.", 400);
   }
 
   if (!code) {
@@ -337,7 +383,13 @@ function getCallbackIdentity({ code, state, error, errorDescription, req }) {
   return resolveOAuthState({ state, req });
 }
 
-async function completeCTraderCallback({ code, state, error, errorDescription, req }) {
+async function completeCTraderCallback({
+  code,
+  state,
+  error,
+  errorDescription,
+  req,
+}) {
   const decodedState = getCallbackIdentity({
     code,
     state,
