@@ -9,12 +9,13 @@ import journalRoutes from "./routes/journal.route.js";
 import aiRoutes from "./routes/ai.route.js";
 import analyticsRoutes from "./routes/analytics.route.js";
 import goalRoutes from "./routes/goal.route.js";
+import brokerRoutes from "./routes/broker.route.js";
 
 const app = express();
 const configuredClientOrigin =
   process.env.NODE_ENV === "production"
     ? process.env.CLIENT_URL
-    : process.env.CLIENT_ORIGIN || "http://localhost:3000";
+    : process.env.CLIENT_ORIGIN;
 const allowedOrigins = (configuredClientOrigin || "")
   .split(",")
   .map((origin) => origin.trim())
@@ -55,6 +56,10 @@ app.use("/api/journal", journalRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/goals", goalRoutes);
+// Broker Routes
+app.use("/api/broker", brokerRoutes);
+// Alias matches the cTrader app redirect URI: /api/brokers/ctrader/callback
+app.use("/api/brokers", brokerRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

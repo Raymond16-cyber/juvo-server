@@ -26,7 +26,28 @@ function verifyToken(token) {
   return jwt.verify(token, jwtSecret);
 }
 
+function signOAuthState(payload, expiresIn = "15m") {
+  return jwt.sign(
+    {
+      ...payload,
+      purpose: "ctrader-oauth",
+    },
+    jwtSecret,
+    { expiresIn },
+  );
+}
+
+function verifyOAuthState(token) {
+  const decoded = jwt.verify(token, jwtSecret);
+  if (decoded?.purpose !== "ctrader-oauth") {
+    throw new Error("Invalid broker OAuth state.");
+  }
+  return decoded;
+}
+
 export {
   signToken,
   verifyToken,
+  signOAuthState,
+  verifyOAuthState,
 };
