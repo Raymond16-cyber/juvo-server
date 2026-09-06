@@ -110,7 +110,13 @@ const BrokerConnectionSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["connecting", "connected", "disconnected", "error"],
+      enum: [
+        "connecting",
+        "connected",
+        "disconnected",
+        "error",
+        "reauthorization_required",
+      ],
       default: "connecting",
       index: true,
     },

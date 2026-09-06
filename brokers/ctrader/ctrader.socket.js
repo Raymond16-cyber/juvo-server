@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import EventEmitter from "events";
 import WebSocket from "ws";
 import {
   brokerError,
@@ -33,7 +34,8 @@ function safePayload(payload = {}) {
       if (
         normalizedKey.includes("token") ||
         normalizedKey.includes("secret") ||
-        normalizedKey.includes("code")
+        normalizedKey.includes("code") ||
+        normalizedKey === "clientid"
       ) {
         return [key, redactSecret(value)];
       }
@@ -59,13 +61,15 @@ function makeCTraderError(message, status = 502, details = {}) {
   return error;
 }
 
-class CTraderJsonSocket {
+class CTraderJsonSocket extends EventEmitter {
   constructor({ url = CTRADER_JSON_ENDPOINT, timeoutMs = CTRADER_SOCKET_TIMEOUT_MS } = {}) {
+    super();
     this.url = url;
     this.timeoutMs = timeoutMs;
     this.socket = null;
     this.pending = new Map();
     this.isOpen = false;
+    this.closingIntentionally = false;
   }
 
   connect() {
@@ -107,6 +111,7 @@ class CTraderJsonSocket {
           url: this.url,
           readyState: this.socket.readyState,
         });
+        this.emit("open");
         finish(resolve, this);
       });
 
@@ -133,7 +138,9 @@ class CTraderJsonSocket {
           code,
           reason,
           pendingRequests: this.pending.size,
+          intentional: this.closingIntentionally,
         });
+        this.emit("close", { code, reason, intentional: this.closingIntentionally });
 
         if (!settled) {
           finish(
@@ -145,12 +152,14 @@ class CTraderJsonSocket {
           );
         }
 
-        this.rejectPending(
-          makeCTraderError("cTrader WebSocket closed unexpectedly.", 502, {
-            code,
-            reason,
-          }),
-        );
+        if (!this.closingIntentionally) {
+          this.rejectPending(
+            makeCTraderError("cTrader WebSocket closed unexpectedly.", 502, {
+              code,
+              reason,
+            }),
+          );
+        }
       });
 
       this.socket.on("unexpected-response", (_request, response) => {
@@ -223,6 +232,20 @@ class CTraderJsonSocket {
     });
   }
 
+  sendEvent(payloadType, payload = {}) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    brokerLog("ctrader:socket:send-event", {
+      payloadType,
+      payload: safePayload(payload),
+    });
+
+    this.socket.send(JSON.stringify({ payloadType, payload }));
+    return true;
+  }
+
   handleMessage(data) {
     let message;
 
@@ -236,12 +259,14 @@ class CTraderJsonSocket {
     }
 
     brokerLog("ctrader:socket:message", safeMessageSummary(message));
+    this.emit("message", message);
 
     const pending = message.clientMsgId
       ? this.pending.get(message.clientMsgId)
       : null;
 
     if (!pending) {
+      this.emit("event", message);
       if (message.payloadType === CTRADER_PAYLOAD_TYPES.ERROR_RES) {
         brokerWarn("ctrader:socket:unmatched-error", safeMessageSummary(message));
       }
@@ -295,6 +320,7 @@ class CTraderJsonSocket {
       this.socket.readyState === WebSocket.OPEN ||
       this.socket.readyState === WebSocket.CONNECTING
     ) {
+      this.closingIntentionally = true;
       this.socket.close();
     }
   }

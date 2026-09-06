@@ -21,7 +21,7 @@ const JOURNAL_LIST_SELECT =
   "_id journalDate status tradingAccount trades psychology review discipline ai createdAt updatedAt";
 
 const TRADE_LIST_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source externalId externalPositionId externalOrderId";
 
 const ACCOUNT_LIST_SELECT =
   "accountName accountNumber broker accountType currency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";

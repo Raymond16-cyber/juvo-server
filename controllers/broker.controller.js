@@ -6,8 +6,10 @@ import {
   getCTraderConfig,
   getFrontendBrokerUrl,
   listBrokerConnections,
+  listBrokerPositions,
   setOAuthCookie,
   startCTraderConnect,
+  syncCTraderConnection,
 } from "../services/broker.service.js";
 import { brokerError, brokerLog, brokerWarn } from "../utils/brokerDebug.js";
 
@@ -139,6 +141,48 @@ export async function getBrokerConnections(req, res, next) {
     });
   } catch (error) {
     brokerError("controller:list:error", error);
+    next(error);
+  }
+}
+
+export async function getBrokerPositions(req, res, next) {
+  brokerLog("controller:positions:hit", {
+    userId: req.user?.id || req.user?._id,
+    query: req.query,
+  });
+
+  try {
+    const positions = await listBrokerPositions(req.user, req.query);
+    return res.status(200).json({
+      message: positions.length
+        ? "Broker positions retrieved successfully."
+        : "No broker positions found.",
+      data: positions,
+    });
+  } catch (error) {
+    brokerError("controller:positions:error", error);
+    next(error);
+  }
+}
+
+export async function syncCTrader(req, res, next) {
+  brokerLog("controller:sync:hit", {
+    userId: req.user?.id || req.user?._id,
+    connectionId: req.body?.connectionId || req.query?.connectionId,
+  });
+
+  try {
+    const result = await syncCTraderConnection(
+      req.user,
+      req.body?.connectionId || req.query?.connectionId,
+    );
+
+    return res.status(200).json({
+      message: "cTrader synced successfully.",
+      data: result,
+    });
+  } catch (error) {
+    brokerError("controller:sync:error", error);
     next(error);
   }
 }

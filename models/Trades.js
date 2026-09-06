@@ -107,9 +107,48 @@ const tradeSchema = new mongoose.Schema(
     ],
 
     notes: String,
+
+    source: {
+      type: String,
+      enum: ["manual", "ctrader"],
+      default: "manual",
+      index: true,
+    },
+
+    externalId: {
+      type: String,
+      trim: true,
+      index: true,
+    },
+
+    externalPositionId: {
+      type: String,
+      trim: true,
+    },
+
+    externalOrderId: {
+      type: String,
+      trim: true,
+    },
+
+    rawSource: {
+      type: mongoose.Schema.Types.Mixed,
+      select: false,
+    },
   },
   {
     _id: true,
+  },
+);
+
+tradeSchema.index(
+  { user: 1, source: 1, externalId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      source: "ctrader",
+      externalId: { $type: "string" },
+    },
   },
 );
 

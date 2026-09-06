@@ -4,7 +4,7 @@ import { findUserById } from "../repositories/userRepository.js";
 import { validateTradingAccountInput } from "../validations/tradingAccountValidation.js";
 
 const ACCOUNT_TRADE_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt source externalId externalPositionId externalOrderId";
 
 function round(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
