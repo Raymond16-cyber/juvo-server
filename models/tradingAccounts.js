@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const tradingPlanSchema = new mongoose.Schema({
+const tradingAccountSchema = new mongoose.Schema({
     accountName: {
         type: String,
         required: true,
@@ -8,7 +8,6 @@ const tradingPlanSchema = new mongoose.Schema({
     accountNumber: {
         type: String,
         required: true,
-        unique: true,
     },
     accountType: {
         type: String,
@@ -119,10 +118,14 @@ const tradingPlanSchema = new mongoose.Schema({
     timestamps: true,
 });
 
-tradingPlanSchema.index({ userId: 1, isActive: 1 });
-tradingPlanSchema.index({ userId: 1, status: 1 });
+tradingAccountSchema.index(
+    { userId: 1, accountNumber: 1, broker: 1, platform: 1 },
+    { unique: true },
+);
+tradingAccountSchema.index({ userId: 1, isActive: 1 });
+tradingAccountSchema.index({ userId: 1, status: 1 });
 
-const TradingAccount = mongoose.model("TradingAccount", tradingPlanSchema);
+const TradingAccount = mongoose.model("TradingAccount", tradingAccountSchema);
 
 export default TradingAccount;
 

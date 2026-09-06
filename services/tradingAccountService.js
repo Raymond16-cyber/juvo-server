@@ -158,6 +158,18 @@ async function getUserTradingAccountsService(userId) {
   return tradingAccounts.map(withAccountStats);
 }
 
+async function getArchivedTradingAccountsService(userId) {
+  const tradingAccounts = await TradingAccount.find({
+    userId,
+    isArchived: true,
+  })
+    .populate("trades", ACCOUNT_TRADE_SELECT)
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  return tradingAccounts.map(withAccountStats);
+}
+
 async function getTradingAccountByIdService(accountId, userId) {
   const account = await TradingAccount.findOne({
     _id: accountId,
@@ -217,6 +229,47 @@ async function activateTradingAccountService(accountId, userId) {
   }
 
   await setActiveTradingAccount(userId, account._id);
+  const populated = await populateTradingAccount(account._id);
+
+  return {
+    success: true,
+    data: withAccountStats(populated),
+  };
+}
+
+async function restoreTradingAccountService(accountId, userId) {
+  const user = await findUserById(userId);
+  if (!user) {
+    return {
+      success: false,
+      statusCode: 404,
+      message: "User not found.",
+    };
+  }
+
+  const account = await TradingAccount.findOneAndUpdate(
+    {
+      _id: accountId,
+      userId,
+      isArchived: true,
+    },
+    {
+      $set: {
+        isArchived: false,
+        isActive: false,
+      },
+    },
+    { new: true },
+  );
+
+  if (!account) {
+    return {
+      success: false,
+      statusCode: 404,
+      message: "Archived trading account not found.",
+    };
+  }
+
   const populated = await populateTradingAccount(account._id);
 
   return {
@@ -314,19 +367,37 @@ async function deleteTradingAccountService(accountId, userId) {
     };
   }
 
-  const tradingAccount = await TradingAccount.findOneAndDelete({
+  const existingAccount = await TradingAccount.findOne({
     _id: accountId,
     userId,
+    isArchived: false,
   });
 
-  if (!tradingAccount) {
+  if (!existingAccount) {
     return {
       success: false,
       message: "Trading account not found.",
     };
   }
 
-  if (tradingAccount.isActive) {
+  const wasActive = existingAccount.isActive;
+
+  await TradingAccount.findOneAndUpdate(
+    {
+      _id: accountId,
+      userId,
+      isArchived: false,
+    },
+    {
+      $set: {
+        isArchived: true,
+        isActive: false,
+      },
+    },
+    { new: true },
+  );
+
+  if (wasActive) {
     const fallback = await TradingAccount.findOne({
       userId,
       isArchived: false,
@@ -342,7 +413,7 @@ async function deleteTradingAccountService(accountId, userId) {
 
   return {
     success: true,
-    message: "Trading account deleted successfully.",
+    message: "Trading account archived successfully.",
   };
 }
 
@@ -353,9 +424,11 @@ export {
   createTradingAccountService,
   deleteTradingAccountService,
   evaluateTradingAccountStatus,
+  getArchivedTradingAccountsService,
   getAccountStatus,
   getTradingAccountByIdService,
   getUserTradingAccountsService,
   isTradingAccountInPlay,
+  restoreTradingAccountService,
   setActiveTradingAccount,
 };

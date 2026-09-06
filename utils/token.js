@@ -1,8 +1,12 @@
 import "../config/loadEnv.js";
 import jwt from "jsonwebtoken";
 
-const jwtSecret = process.env.JWT_SECRET || "myhub_super_secret_key";
+const jwtSecret = process.env.JWT_SECRET;
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+
+if (!jwtSecret) {
+  throw new Error("JWT_SECRET is required.");
+}
 
 function signToken(user) {
   return jwt.sign(

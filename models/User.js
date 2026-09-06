@@ -262,8 +262,12 @@ userSchema.set("toJSON", {
     delete ret._id;
     delete ret.__v;
     delete ret.password;
-    delete ret.security.resetPasswordToken;
-    delete ret.security.resetPasswordCode;
+    if (ret.security) {
+      delete ret.security.otpVerificationToken;
+      delete ret.security.otpVerificationCode;
+      delete ret.security.resetPasswordToken;
+      delete ret.security.resetPasswordCode;
+    }
 
     return ret;
   },

@@ -41,7 +41,6 @@ async function signin(req, res, next) {
 }
 
 async function appleAuth(req, res, next) {
-  console.log("Apple Auth Request Body:", req.body); // Log the request body for debugging
   try {
     const result = await appleAuthService(req.body);
 
@@ -100,11 +99,13 @@ async function generateOtpVerificationToken(req, res, next) {
 
     const result = await generateOtpVerificationTokenService(req.body);
 
-    await sendOtpToEmail(
-      req.body.email,
-      result.otpVerificationCode,
-      "request-reset-password",
-    );
+    if (result.otpVerificationCode) {
+      await sendOtpToEmail(
+        req.body.email,
+        result.otpVerificationCode,
+        "request-reset-password",
+      );
+    }
 
     return res.status(200).json({
       message:

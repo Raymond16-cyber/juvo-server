@@ -65,7 +65,6 @@ async function registerService(payload) {
     pushToken: result.data.pushToken || null,
     // providerId:payload.providerId
   });
-  console.log("results:");
 
   if (result.data.pushToken) {
     sendWelcomeNotification(result.data.pushToken).catch((error) => {
@@ -180,9 +179,12 @@ async function generateOtpVerificationTokenService(payload) {
   const user = await findUserByEmail(result.data.email);
 
   if (!user) {
-    const error = new Error("User not found.");
-    error.status = 404;
-    throw error;
+    return {
+      user: null,
+      otpVerificationToken: null,
+      otpVerificationExpires: null,
+      otpVerificationCode: null,
+    };
   }
 
   // Prevent another request within 1 minute
@@ -346,6 +348,10 @@ async function resetPasswordService(payload) {
       ...security,
 
       // Invalidate the reset session
+      otpVerificationToken: null,
+      otpVerificationExpires: null,
+      otpVerificationCode: null,
+      isOtpVerified: false,
       resetPasswordToken: null,
       resetPasswordExpires: null,
       resetPasswordCode: null,
@@ -370,6 +376,14 @@ async function updatePreferencesService(userId, payload = {}) {
   const fullName = String(payload.fullName || "").trim();
   const country = String(payload.country || "").trim();
   const timezone = String(payload.timezone || "").trim();
+  const experienceLevel = String(payload.experienceLevel || "").trim();
+  const tradingStyle = String(payload.tradingStyle || "").trim();
+  const instruments = Array.isArray(payload.instruments)
+    ? payload.instruments
+    : null;
+  const biggestChallenges = Array.isArray(payload.biggestChallenges)
+    ? payload.biggestChallenges
+    : null;
 
   if (theme && ["light", "dark", "system"].includes(theme)) {
     updates["preferences.theme"] = theme;
@@ -385,6 +399,49 @@ async function updatePreferencesService(userId, payload = {}) {
   if (fullName) updates.fullName = fullName;
   if (country) updates["profile.country"] = country;
   if (timezone) updates["profile.timezone"] = timezone;
+  if (
+    experienceLevel &&
+    ["beginner", "intermediate", "advanced", "professional"].includes(
+      experienceLevel,
+    )
+  ) {
+    updates["profile.experienceLevel"] = experienceLevel;
+  }
+  if (
+    tradingStyle &&
+    ["scalping", "day_trading", "swing_trading", "position_trading"].includes(
+      tradingStyle,
+    )
+  ) {
+    updates["profile.tradingStyle"] = tradingStyle;
+  }
+  if (instruments) {
+    updates["profile.instruments"] = instruments.filter((instrument) =>
+      [
+        "forex",
+        "crypto",
+        "stocks",
+        "indices",
+        "commodities",
+        "futures",
+      ].includes(instrument),
+    );
+  }
+  if (biggestChallenges) {
+    updates["profile.biggestChallenges"] = biggestChallenges.filter(
+      (challenge) =>
+        [
+          "fomo",
+          "revenge_trading",
+          "overtrading",
+          "impatience",
+          "poor_risk_management",
+          "emotional_trading",
+          "lack_of_discipline",
+          "inconsistent_strategy",
+        ].includes(challenge),
+    );
+  }
 
   const user = await updateUser(userId, { $set: updates });
   return { user: sanitizeUser(user) };

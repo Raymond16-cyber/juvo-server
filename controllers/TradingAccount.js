@@ -2,8 +2,10 @@ import {
   activateTradingAccountService,
   createTradingAccountService,
   deleteTradingAccountService,
+  getArchivedTradingAccountsService,
   getTradingAccountByIdService,
   getUserTradingAccountsService,
+  restoreTradingAccountService,
 } from "../services/tradingAccountService.js";
 
 const createTradingAccountController = async (req, res, next) => {
@@ -57,6 +59,27 @@ const getUserTradingAccountsController = async (req, res, next) => {
   }
 };
 
+const getArchivedTradingAccountsController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    if (!userId) {
+      return res.status(400).json({
+        message: "User is not signed in.",
+      });
+    }
+
+    const tradingAccounts = await getArchivedTradingAccountsService(userId);
+    return res.status(200).json({
+      message: tradingAccounts.length
+        ? "Archived trading accounts retrieved successfully."
+        : "No archived trading accounts found for the user.",
+      data: tradingAccounts,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const deleteTradingAccountController = async (req, res, next) => {
   const userId = req.user.id;
   const { accountId } = req.params;
@@ -68,7 +91,7 @@ const deleteTradingAccountController = async (req, res, next) => {
   const result = await deleteTradingAccountService(accountId, userId);
   if (result.success) {
     return res.status(200).json({
-      message: "Trading account deleted successfully.",
+      message: "Trading account archived successfully.",
       accountId
     });
   } else {
@@ -130,10 +153,38 @@ const activateTradingAccountController = async (req, res, next) => {
   }
 };
 
+const restoreTradingAccountController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { accountId } = req.params;
+    if (!userId) {
+      return res.status(400).json({
+        message: "User is not signed in.",
+      });
+    }
+
+    const result = await restoreTradingAccountService(accountId, userId);
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        message: result.message,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Trading account restored successfully.",
+      data: result.data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export {
   activateTradingAccountController,
   createTradingAccountController,
   deleteTradingAccountController,
+  getArchivedTradingAccountsController,
   getTradingAccountByIdController,
   getUserTradingAccountsController,
+  restoreTradingAccountController,
 };

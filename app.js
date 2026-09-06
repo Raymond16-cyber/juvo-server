@@ -11,11 +11,33 @@ import analyticsRoutes from "./routes/analytics.route.js";
 import goalRoutes from "./routes/goal.route.js";
 
 const app = express();
-const clientOrigin = process.env.CLIENT_ORIGIN || "*";
+const configuredClientOrigin =
+  process.env.NODE_ENV === "production"
+    ? process.env.CLIENT_URL
+    : process.env.CLIENT_ORIGIN || "http://localhost:3000";
+const allowedOrigins = (configuredClientOrigin || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (process.env.NODE_ENV === "production" && !process.env.CLIENT_URL) {
+  throw new Error("CLIENT_URL is required in production.");
+}
 
 app.use(
   cors({
-    origin: clientOrigin,
+    origin(origin, callback) {
+      if (
+        !origin ||
+        allowedOrigins.includes("*") ||
+        allowedOrigins.includes(origin)
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Not allowed by CORS."));
+    },
     credentials: true,
   }),
 );

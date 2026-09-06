@@ -25,6 +25,7 @@ const TRADE_LIST_SELECT =
 
 const ACCOUNT_LIST_SELECT =
   "accountName accountNumber broker accountType currency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function populateTrades(query) {
   return query.populate({
@@ -93,6 +94,30 @@ function withJournalStats(journal) {
     ...journal,
     ...summarizeTrades(trades),
   };
+}
+
+async function buildNextJournalStreak(userId, journalDate) {
+  const [user, previousJournal] = await Promise.all([
+    User.findById(userId).select("stats.currentJournalStreak").lean(),
+    Journal.findOne({
+      user: userId,
+      journalDate: { $lt: journalDate },
+    })
+      .select("journalDate")
+      .sort({ journalDate: -1 })
+      .lean(),
+  ]);
+
+  const previousDate = previousJournal?.journalDate
+    ? new Date(previousJournal.journalDate)
+    : null;
+  const diffDays = previousDate
+    ? Math.round((journalDate.getTime() - previousDate.getTime()) / MS_PER_DAY)
+    : null;
+
+  return diffDays === 1
+    ? Number(user?.stats?.currentJournalStreak || 0) + 1
+    : 1;
 }
 
 async function populateJournal(journalId) {
@@ -207,8 +232,14 @@ async function createJournalService(data, userId, journalDate) {
       journalDate,
     });
 
+    const currentJournalStreak = await buildNextJournalStreak(
+      userId,
+      journalDate,
+    );
     await User.findByIdAndUpdate(userId, {
-      $inc: { "stats.totalJournals": 1, "stats.currentJournalStreak": 1 },
+      $inc: { "stats.totalJournals": 1 },
+      $set: { "stats.currentJournalStreak": currentJournalStreak },
+      $max: { "stats.longestJournalStreak": currentJournalStreak },
     });
 
     const populatedJournal = await populateJournal(journal._id);
@@ -301,7 +332,7 @@ async function createJournalTradeService(journalId, data, userId) {
   };
 }
 
-function estimateProfitLoss(trade, exitPrice) {
+function estimateProfitLoss(trade, exitPrice, account) {
   const risk = Math.abs(Number(trade.entryPrice) - Number(trade.stopLoss));
   const move =
     trade.direction === "short"
@@ -313,10 +344,13 @@ function estimateProfitLoss(trade, exitPrice) {
   }
 
   const achievedRR = Number((move / risk).toFixed(2));
-  const riskAmount =
-    Number(trade.lotSize || 0) * (Number(trade.riskPercentage || 0) / 100) ||
-    Math.abs(move);
-  const profitLoss = Number((achievedRR * (riskAmount || 1) * 100).toFixed(2));
+  const accountBalance = Number(account?.currentBalance || 0);
+  const riskAmount = accountBalance
+    ? accountBalance * (Number(trade.riskPercentage || 0) / 100)
+    : 0;
+  const profitLoss = Number(
+    (achievedRR * (riskAmount || Math.abs(move))).toFixed(2),
+  );
 
   return { profitLoss, achievedRR };
 }
@@ -351,7 +385,11 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
     };
   }
 
-  const estimated = estimateProfitLoss(trade, result.data.exitPrice);
+  const account = await TradingAccount.findOne({
+    _id: trade.tradingAccount || journal.tradingAccount,
+    userId,
+  }).select("currentBalance");
+  const estimated = estimateProfitLoss(trade, result.data.exitPrice, account);
   const profitLoss =
     result.data.profitLoss !== undefined
       ? result.data.profitLoss

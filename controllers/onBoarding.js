@@ -1,4 +1,5 @@
 import { updateUser } from "../repositories/userRepository.js";
+import { sanitizeUser } from "../services/authService.js";
 import { validateOnboardingInput } from "../validations/onboardingValidation.js";
 
 function buildOnboardingUpdates(data) {
@@ -65,7 +66,7 @@ export const onBoardingUser = async (req, res, next) => {
 
     return res.status(200).json({
       message: "Onboarding completed successfully.",
-      user: updatedUser,
+      user: sanitizeUser(updatedUser),
     });
   } catch (error) {
     return next(error);

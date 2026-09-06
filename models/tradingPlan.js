@@ -38,7 +38,7 @@ const tradingPlanSchema = new mongoose.Schema(
       required: true,
       default: 5,
     },
-    maxdailyLoss: {
+    maxDailyLoss: {
       type: Number,
       required: true,
       default: 2,
@@ -122,7 +122,7 @@ const tradingPlanSchema = new mongoose.Schema(
 
 tradingPlanSchema.index(
   {
-    user: 1,
+    userId: 1,
     tradingAccount: 1,
     status: 1,
   },
