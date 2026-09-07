@@ -4,6 +4,7 @@ import Trade from "../models/Trades.js";
 import TradingAccount from "../models/tradingAccounts.js";
 import User from "../models/User.js";
 import { analyzeJournalWithAi } from "./ai.service.js";
+import { userCanUseJuvoAi } from "./entitlement.service.js";
 import {
   applyClosedTradeToAccount,
   attachTradeToActiveAccount,
@@ -460,6 +461,18 @@ async function completeJournalService(journalId, data, userId) {
   let analysis = null;
 
   try {
+    const canUseAi = await userCanUseJuvoAi(userId);
+    if (!canUseAi) {
+      const refreshed = await populateJournal(journalId);
+      return {
+        success: true,
+        data: {
+          ...withJournalStats(refreshed),
+          analysis,
+        },
+      };
+    }
+
     const aiResult = await analyzeJournalWithAi(populated);
     if (aiResult.summary || aiResult.feedback) {
       journal.ai = {

@@ -3,6 +3,11 @@ import {
   getConversationService,
   listConversationsService,
 } from "../services/ai.service.js";
+import {
+  ENTITLEMENTS,
+  getUserFeatureAccess,
+  startJuvoAiTrial,
+} from "../services/entitlement.service.js";
 
 function getUserId(user) {
   return user?.id || user?._id;
@@ -68,8 +73,47 @@ async function chatController(req, res, next) {
   }
 }
 
+async function getAiAccessController(req, res, next) {
+  try {
+    const userId = getUserId(req.user);
+    if (!userId) {
+      return res.status(401).json({ message: "User is not signed in." });
+    }
+
+    const access = await getUserFeatureAccess(userId, ENTITLEMENTS.JUVO_AI);
+    return res.status(200).json({
+      message: "Juvo AI access retrieved.",
+      data: access,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function startAiTrialController(req, res, next) {
+  try {
+    const userId = getUserId(req.user);
+    if (!userId) {
+      return res.status(401).json({ message: "User is not signed in." });
+    }
+
+    const access = await startJuvoAiTrial(userId);
+    return res.status(200).json({
+      message:
+        access?.source === "trial"
+          ? "Your 3-day Juvo AI trial is active."
+          : "Juvo AI access retrieved.",
+      data: access,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export {
   chatController,
+  getAiAccessController,
   getConversationController,
   listConversationsController,
+  startAiTrialController,
 };

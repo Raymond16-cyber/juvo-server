@@ -16,7 +16,11 @@ import { brokerError, brokerLog, brokerWarn } from "../utils/brokerDebug.js";
 function redirectToBrokerPage(res, query) {
   const { clientOrigin } = getCTraderConfig();
   const location = getFrontendBrokerUrl(clientOrigin, query);
-  brokerLog("callback:redirect", { location });
+  brokerLog("callback:redirect", {
+    hasConnectedFlag: query?.connected === "1",
+    hasCode: Boolean(query?.code),
+    hasError: Boolean(query?.error),
+  });
   clearOAuthCookie(res);
   return res.redirect(location);
 }
@@ -24,7 +28,6 @@ function redirectToBrokerPage(res, query) {
 export async function connectCTrader(req, res, next) {
   brokerLog("controller:connect:hit", {
     userId: req.user?.id || req.user?._id,
-    query: req.query,
   });
 
   try {
@@ -50,10 +53,10 @@ export async function connectCTrader(req, res, next) {
 export async function callbackCTrader(req, res, next) {
   brokerLog("controller:callback:hit", {
     method: req.method,
-    path: req.originalUrl,
-    query: req.query,
     hasCookieHeader: Boolean(req.headers.cookie),
-    bodyKeys: req.body ? Object.keys(req.body) : [],
+    hasCode: Boolean(req.query.code || req.body?.code),
+    hasState: Boolean(req.query.state || req.body?.state),
+    hasError: Boolean(req.query.error || req.body?.error),
   });
 
   try {
@@ -89,7 +92,9 @@ export async function callbackCTrader(req, res, next) {
     return redirectToBrokerPage(res, { connected: "1" });
   } catch (error) {
     brokerError("controller:callback:error", error, {
-      query: req.query,
+      hasCode: Boolean(req.query.code || req.body?.code),
+      hasState: Boolean(req.query.state || req.body?.state),
+      hasError: Boolean(req.query.error || req.body?.error),
     });
 
     try {
@@ -148,7 +153,7 @@ export async function getBrokerConnections(req, res, next) {
 export async function getBrokerPositions(req, res, next) {
   brokerLog("controller:positions:hit", {
     userId: req.user?.id || req.user?._id,
-    query: req.query,
+    status: req.query?.status,
   });
 
   try {

@@ -152,6 +152,23 @@ const userSchema = new mongoose.Schema(
       trialEndsAt: Date,
     },
 
+    // Product entitlements that are separate from the main subscription plan.
+    entitlements: {
+      aiTrial: {
+        status: {
+          type: String,
+          enum: ["available", "active", "expired"],
+          default: "available",
+        },
+        startedAt: Date,
+        expiresAt: Date,
+        used: {
+          type: Boolean,
+          default: false,
+        },
+      },
+    },
+
     // Security
     security: {
       otpVerificationToken: {

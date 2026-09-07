@@ -39,8 +39,14 @@ function emitToUser(userId, event, payload) {
 
   let sent = 0;
   for (const socket of clients) {
+    if (socket.readyState === WebSocket.CLOSED) {
+      clients.delete(socket);
+      continue;
+    }
     if (sendToSocket(socket, event, payload)) sent += 1;
   }
+
+  if (!clients.size) clientsByUser.delete(key);
 
   brokerLog("realtime:emit:done", { userId: key, event, sent });
   return sent;

@@ -30,6 +30,15 @@ function buildSymbolLookup(symbols = [], archivedSymbols = []) {
   return lookup;
 }
 
+function buildSymbolMetadataMap(symbols = []) {
+  const lookup = new Map();
+  symbols.forEach((symbol) => {
+    if (symbol?.symbolId == null) return;
+    lookup.set(String(symbol.symbolId), symbol);
+  });
+  return lookup;
+}
+
 function inferInstrument(symbol = "") {
   const normalized = symbol.toUpperCase();
   if (normalized.includes("/") || /^[A-Z]{6}$/.test(normalized)) return "forex";
@@ -51,6 +60,51 @@ function inferInstrument(symbol = "") {
 
 function getSymbolName(symbolLookup, symbolId) {
   return symbolLookup.get(String(symbolId)) || `SYMBOL-${String(symbolId)}`;
+}
+
+function convertSpotPrice(value, symbol = {}) {
+  if (value == null) return undefined;
+  const digits = Number.isFinite(Number(symbol.digits)) ? Number(symbol.digits) : 5;
+  return Number((Number(value) / 100000).toFixed(digits));
+}
+
+function getRelevantClosePrice({ direction, bid, ask }) {
+  if (direction === "long") return bid;
+  if (direction === "short") return ask;
+  return undefined;
+}
+
+function normalizeUnrealizedPnl(value, moneyDigits = 2) {
+  if (!value || value.positionId == null) return null;
+  return {
+    positionId: String(value.positionId),
+    grossUnrealizedPnl: moneyToNumber(value.grossUnrealizedPnL, moneyDigits),
+    netUnrealizedPnl: moneyToNumber(value.netUnrealizedPnL, moneyDigits),
+    moneyDigits,
+  };
+}
+
+function projectLivePosition({ position, quote, symbol, unrealizedPnl }) {
+  const currentPrice = getRelevantClosePrice({
+    direction: position.direction,
+    bid: quote?.bid,
+    ask: quote?.ask,
+  });
+  const openedAt = position.openedAt ? new Date(position.openedAt).getTime() : null;
+
+  return {
+    currentBid: quote?.bid,
+    currentAsk: quote?.ask,
+    currentPrice,
+    grossUnrealizedPnl: unrealizedPnl?.grossUnrealizedPnl,
+    netUnrealizedPnl: unrealizedPnl?.netUnrealizedPnl,
+    quoteTimestamp: quote?.timestamp,
+    pnlTimestamp: unrealizedPnl?.timestamp,
+    symbolDigits: symbol?.digits,
+    pipPosition: symbol?.pipPosition,
+    durationMs: openedAt ? Math.max(0, Date.now() - openedAt) : undefined,
+    floatingPnlIsIndicative: false,
+  };
 }
 
 function mapCTraderDealToTrade({
@@ -167,10 +221,15 @@ function mapCTraderPosition({
 
 export {
   buildSymbolLookup,
+  buildSymbolMetadataMap,
+  convertSpotPrice,
+  getRelevantClosePrice,
   inferInstrument,
   mapCTraderDealToTrade,
   mapCTraderPosition,
   moneyToNumber,
+  normalizeUnrealizedPnl,
+  projectLivePosition,
   startOfUtcDay,
   volumeToLots,
 };

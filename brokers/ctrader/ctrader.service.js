@@ -102,17 +102,12 @@ async function requestCTraderAccounts(socket, accessToken) {
   );
 
   const accounts = extractAccountsFromResponse(response);
-  const safeAccounts = accounts.map(({ ctidTraderAccountId }) => ({
-    ctidTraderAccountId,
-  }));
-
   brokerLog("ctrader:accounts:success", {
     count: accounts.length,
-    accounts: safeAccounts,
+    accounts: accounts.map(({ ctidTraderAccountId }) => ({
+      ctidTraderAccountId,
+    })),
   });
-
-  console.log(safeAccounts);
-  console.log("🔥 SUCCESS");
 
   return accounts;
 }
@@ -179,6 +174,41 @@ async function requestSymbols(socket, ctidTraderAccountId) {
 
   brokerLog("ctrader:symbols:success", {
     ctidTraderAccountId: String(ctidTraderAccountId),
+    symbols: symbols.length,
+    archivedSymbols: archivedSymbols.length,
+  });
+
+  return { symbols, archivedSymbols };
+}
+
+async function requestSymbolById(socket, ctidTraderAccountId, symbolIds = []) {
+  const uniqueSymbolIds = Array.from(
+    new Set(symbolIds.map((symbolId) => Number(symbolId)).filter(Boolean)),
+  );
+  if (!uniqueSymbolIds.length) return { symbols: [], archivedSymbols: [] };
+
+  const response = await socket.sendRequest(
+    CTRADER_PAYLOAD_TYPES.SYMBOL_BY_ID_REQ,
+    {
+      ctidTraderAccountId: toCTraderAccountId(ctidTraderAccountId),
+      symbolId: uniqueSymbolIds,
+    },
+    {
+      expectedPayloadType: CTRADER_PAYLOAD_TYPES.SYMBOL_BY_ID_RES,
+      timeoutMs: CTRADER_SOCKET_TIMEOUT_MS,
+    },
+  );
+
+  const symbols = Array.isArray(response.payload?.symbol)
+    ? response.payload.symbol
+    : [];
+  const archivedSymbols = Array.isArray(response.payload?.archivedSymbol)
+    ? response.payload.archivedSymbol
+    : [];
+
+  brokerLog("ctrader:symbol-by-id:success", {
+    ctidTraderAccountId: String(ctidTraderAccountId),
+    requested: uniqueSymbolIds.length,
     symbols: symbols.length,
     archivedSymbols: archivedSymbols.length,
   });
@@ -256,6 +286,33 @@ async function requestDeals(socket, ctidTraderAccountId, options = {}) {
   };
 }
 
+async function requestPositionUnrealizedPnl(socket, ctidTraderAccountId) {
+  const response = await socket.sendRequest(
+    CTRADER_PAYLOAD_TYPES.GET_POSITION_UNREALIZED_PNL_REQ,
+    {
+      ctidTraderAccountId: toCTraderAccountId(ctidTraderAccountId),
+    },
+    {
+      expectedPayloadType: CTRADER_PAYLOAD_TYPES.GET_POSITION_UNREALIZED_PNL_RES,
+      timeoutMs: CTRADER_SOCKET_TIMEOUT_MS,
+    },
+  );
+
+  const values = Array.isArray(response.payload?.positionUnrealizedPnL)
+    ? response.payload.positionUnrealizedPnL
+    : [];
+
+  brokerLog("ctrader:unrealized-pnl:success", {
+    ctidTraderAccountId: String(ctidTraderAccountId),
+    count: values.length,
+  });
+
+  return {
+    moneyDigits: response.payload?.moneyDigits ?? 2,
+    values,
+  };
+}
+
 async function getCTraderReadOnlySnapshot(
   accessToken,
   { clientId, clientSecret, ctidTraderAccountId } = {},
@@ -302,6 +359,21 @@ async function getCTraderReadOnlySnapshot(
         requestReconcile(socket, selectedAccount.ctidTraderAccountId),
         requestDeals(socket, selectedAccount.ctidTraderAccountId),
       ]);
+    const openSymbolIds = Array.from(
+      new Set(
+        [
+          ...(reconcile.positions || []).map(
+            (position) => position?.tradeData?.symbolId,
+          ),
+          ...(dealsResult.deals || []).map((deal) => deal?.symbolId),
+        ].filter(Boolean),
+      ),
+    );
+    const detailedSymbols = await requestSymbolById(
+      socket,
+      selectedAccount.ctidTraderAccountId,
+      openSymbolIds,
+    );
 
     return {
       accounts,
@@ -310,6 +382,8 @@ async function getCTraderReadOnlySnapshot(
       assets,
       symbols: symbolsResult.symbols,
       archivedSymbols: symbolsResult.archivedSymbols,
+      detailedSymbols: detailedSymbols.symbols,
+      detailedArchivedSymbols: detailedSymbols.archivedSymbols,
       positions: reconcile.positions,
       orders: reconcile.orders,
       deals: dealsResult.deals,
@@ -343,7 +417,9 @@ export {
   getCTraderReadOnlySnapshot,
   requestAssets,
   requestDeals,
+  requestPositionUnrealizedPnl,
   requestReconcile,
+  requestSymbolById,
   requestSymbols,
   requestTrader,
 };

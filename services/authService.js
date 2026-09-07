@@ -68,7 +68,7 @@ async function registerService(payload) {
 
   if (result.data.pushToken) {
     sendWelcomeNotification(result.data.pushToken).catch((error) => {
-      console.error("Failed to send welcome push notification", error);
+      console.error("Failed to send welcome push notification", error.message);
     });
   }
 
@@ -155,7 +155,7 @@ async function appleAuthService(payload) {
 
   if (created && result.data.pushToken) {
     sendWelcomeNotification(result.data.pushToken).catch((error) => {
-      console.error("Failed to send welcome push notification", error);
+      console.error("Failed to send welcome push notification", error.message);
     });
   }
   const token = signToken(user);

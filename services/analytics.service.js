@@ -21,7 +21,8 @@ async function getAnalyticsService(userId, tradingAccountId) {
     ? accounts.find(
         (account) => String(account._id) === String(tradingAccountId),
       )
-    : accounts.find((account) => account.isActive) || accounts[0];
+    : null;
+  const scopedAccounts = selectedAccount ? [selectedAccount] : accounts;
 
   const journalQuery = { user: userId };
   if (selectedAccount) {
@@ -89,6 +90,17 @@ async function getAnalyticsService(userId, tradingAccountId) {
     (total, trade) => total + Number(trade.profitLoss || 0),
     0,
   );
+  const grossProfit = closedTrades.reduce(
+    (total, trade) =>
+      total + Math.max(0, Number(trade.profitLoss || 0)),
+    0,
+  );
+  const grossLoss = closedTrades.reduce(
+    (total, trade) =>
+      total + Math.min(0, Number(trade.profitLoss || 0)),
+    0,
+  );
+  const profitFactor = grossLoss ? grossProfit / Math.abs(grossLoss) : 0;
   const avgRr = closedTrades.length
     ? closedTrades.reduce(
         (total, trade) =>
@@ -106,8 +118,8 @@ async function getAnalyticsService(userId, tradingAccountId) {
   const bySymbol = {};
   const bySession = {};
   const byDirection = {
-    long: { trades: 0, pnl: 0 },
-    short: { trades: 0, pnl: 0 },
+    long: { trades: 0, closedTrades: 0, pnl: 0, wins: 0, losses: 0 },
+    short: { trades: 0, closedTrades: 0, pnl: 0, wins: 0, losses: 0 },
   };
 
   trades.forEach((trade) => {
@@ -126,9 +138,19 @@ async function getAnalyticsService(userId, tradingAccountId) {
     const direction = trade.direction === "short" ? "short" : "long";
     byDirection[direction].trades += 1;
     byDirection[direction].pnl += Number(trade.profitLoss || 0);
+    if (trade.status === "Closed" || trade.status === "Breakeven") {
+      byDirection[direction].closedTrades += 1;
+      if (Number(trade.profitLoss || 0) > 0) byDirection[direction].wins += 1;
+      if (Number(trade.profitLoss || 0) < 0) byDirection[direction].losses += 1;
+    }
   });
 
-  let running = Number(selectedAccount?.initialBalance || 0);
+  let running = scopedAccounts.reduce(
+    (total, account) => total + Number(account.initialBalance || 0),
+    0,
+  );
+  let peakEquity = running;
+  let maxDrawdown = 0;
   const equityCurve = journals.map((journal) => {
     const journalTrades = (journal.trades || []).filter(
       (trade) =>
@@ -145,6 +167,8 @@ async function getAnalyticsService(userId, tradingAccountId) {
       0,
     );
     running += dayPnl;
+    peakEquity = Math.max(peakEquity, running);
+    maxDrawdown = Math.max(maxDrawdown, peakEquity - running);
     return {
       date: journal.journalDate,
       label: new Intl.DateTimeFormat("en", {
@@ -156,6 +180,7 @@ async function getAnalyticsService(userId, tradingAccountId) {
       trades: journalTrades.length,
     };
   });
+  const recoveryFactor = maxDrawdown ? netPnl / maxDrawdown : 0;
 
   const disciplineScores = journals
     .map((journal) => journal.discipline?.score)
@@ -216,14 +241,23 @@ async function getAnalyticsService(userId, tradingAccountId) {
       }))
     : computedInsights;
 
-  const startingBalance = Number(
-    selectedAccount?.currentBalance || selectedAccount?.initialBalance || 0,
+  const bestSession =
+    Object.values(bySession).sort((a, b) => b.pnl - a.pnl)[0] || null;
+  const worstSession =
+    Object.values(bySession).sort((a, b) => a.pnl - b.pnl)[0] || null;
+  const activeCurrencies = Array.from(
+    new Set(scopedAccounts.map((account) => account.currency || "USD")),
+  );
+  const startingBalance = scopedAccounts.reduce(
+    (total, account) => total + Number(account.initialBalance || 0),
+    0,
   );
 
   return {
     success: true,
     data: {
-      currency: selectedAccount?.currency || "USD",
+      currency: selectedAccount?.currency || activeCurrencies[0] || "USD",
+      currencyMode: activeCurrencies.length > 1 ? "mixed" : "single",
       tradingAccount: selectedAccount
         ? {
             _id: selectedAccount._id,
@@ -241,6 +275,11 @@ async function getAnalyticsService(userId, tradingAccountId) {
         closedTrades: closedTrades.length,
         netPnl: round(netPnl),
         winRate: percent(wins.length, closedTrades.length),
+        profitFactor: round(profitFactor),
+        recoveryFactor: round(recoveryFactor),
+        grossProfit: round(grossProfit),
+        grossLoss: round(grossLoss),
+        maxDrawdown: round(maxDrawdown),
         avgRr: round(avgRr),
         avgRisk: round(avgRisk),
         avgDiscipline: round(avgDiscipline, 1),
@@ -248,6 +287,22 @@ async function getAnalyticsService(userId, tradingAccountId) {
         losses: losses.length,
         revengeDays,
         overtradeDays,
+        bestSession: bestSession
+          ? {
+              session: bestSession.session,
+              trades: bestSession.trades,
+              pnl: round(bestSession.pnl),
+              winRate: percent(bestSession.wins, bestSession.trades),
+            }
+          : null,
+        worstSession: worstSession
+          ? {
+              session: worstSession.session,
+              trades: worstSession.trades,
+              pnl: round(worstSession.pnl),
+              winRate: percent(worstSession.wins, worstSession.trades),
+            }
+          : null,
       },
       equityCurve,
       bySymbol: Object.values(bySymbol)
@@ -267,10 +322,18 @@ async function getAnalyticsService(userId, tradingAccountId) {
         long: {
           ...byDirection.long,
           pnl: round(byDirection.long.pnl),
+          winRate: percent(
+            byDirection.long.wins,
+            byDirection.long.closedTrades,
+          ),
         },
         short: {
           ...byDirection.short,
           pnl: round(byDirection.short.pnl),
+          winRate: percent(
+            byDirection.short.wins,
+            byDirection.short.closedTrades,
+          ),
         },
       },
       insights,

@@ -9,17 +9,21 @@ import {
   brokerError,
   brokerLog,
   brokerWarn,
-  redactSecret,
 } from "../utils/brokerDebug.js";
 import { getCTraderReadOnlySnapshot } from "../brokers/ctrader/ctrader.service.js";
 import { cTraderManager } from "../brokers/ctrader/ctrader.manager.js";
+import {
+  buildSymbolLookup,
+  mapCTraderDealToTrade,
+  mapCTraderPosition,
+  moneyToNumber,
+  startOfUtcDay,
+} from "../brokers/ctrader/ctrader.mapper.js";
 
 const CTRADER_AUTHORIZE_URL =
   "https://id.ctrader.com/my/settings/openapi/grantingaccess/";
 const CTRADER_TOKEN_URL = "https://openapi.ctrader.com/apps/token";
 const OAUTH_COOKIE_NAME = "juvo_ctrader_oauth";
-const TRADE_SIDE_BUY = 1;
-const TRADE_SIDE_SELL = 2;
 
 function httpError(message, status = 400) {
   const error = new Error(message);
@@ -29,51 +33,6 @@ function httpError(message, status = 400) {
 
 function getUserId(user) {
   return user?.id || user?._id;
-}
-
-function startOfUtcDay(timestamp) {
-  const date = new Date(Number(timestamp || Date.now()));
-  return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-  );
-}
-
-function moneyToNumber(value, moneyDigits = 2) {
-  const numericValue = Number(value || 0);
-  const digits = Number.isFinite(Number(moneyDigits)) ? Number(moneyDigits) : 2;
-  return Number((numericValue / 10 ** digits).toFixed(2));
-}
-
-function volumeToLots(value) {
-  return Number((Number(value || 0) / 10000000).toFixed(2));
-}
-
-function buildSymbolLookup(symbols = [], archivedSymbols = []) {
-  const lookup = new Map();
-  [...symbols, ...archivedSymbols].forEach((symbol) => {
-    if (symbol?.symbolId == null) return;
-    lookup.set(String(symbol.symbolId), symbol.symbolName || symbol.name);
-  });
-  return lookup;
-}
-
-function inferInstrument(symbol = "") {
-  const normalized = symbol.toUpperCase();
-  if (normalized.includes("/") || /^[A-Z]{6}$/.test(normalized)) return "forex";
-  if (
-    normalized.includes("BTC") ||
-    normalized.includes("ETH") ||
-    normalized.includes("USDT")
-  ) {
-    return "crypto";
-  }
-  if (["XAU", "XAG", "OIL", "WTI", "BRENT"].some((key) => normalized.includes(key))) {
-    return "commodities";
-  }
-  if (["US30", "NAS", "SPX", "DAX", "UK100"].some((key) => normalized.includes(key))) {
-    return "indices";
-  }
-  return "others";
 }
 
 function getDepositCurrency(trader, assets = []) {
@@ -89,58 +48,6 @@ function getBrokerTitle(account, trader) {
     account?.brokerTitle ||
     "cTrader"
   );
-}
-
-function mapCTraderDealToTrade({ deal, ctidTraderAccountId, symbolLookup, moneyDigits }) {
-  const closeDetail = deal?.closePositionDetail;
-  if (!closeDetail || deal.dealStatus !== 2) return null;
-
-  const symbol =
-    symbolLookup.get(String(deal.symbolId)) || `SYMBOL-${String(deal.symbolId)}`;
-  const entryPrice = Number(closeDetail.entryPrice || 0);
-  const exitPrice = Number(deal.executionPrice || 0);
-  if (!entryPrice || !exitPrice) return null;
-
-  const direction = deal.tradeSide === TRADE_SIDE_SELL ? "long" : "short";
-  const dealMoneyDigits = closeDetail.moneyDigits ?? deal.moneyDigits ?? moneyDigits;
-  const grossProfit = moneyToNumber(closeDetail.grossProfit, dealMoneyDigits);
-  const swap = moneyToNumber(closeDetail.swap, dealMoneyDigits);
-  const commission = moneyToNumber(closeDetail.commission, dealMoneyDigits);
-  const pnlConversionFee = moneyToNumber(closeDetail.pnlConversionFee, dealMoneyDigits);
-  const profitLoss = Number(
-    (grossProfit + swap + commission + pnlConversionFee).toFixed(2),
-  );
-
-  return {
-    symbol,
-    instrument: inferInstrument(symbol),
-    direction,
-    entryPrice,
-    exitPrice,
-    stopLoss: entryPrice,
-    takeProfit: exitPrice,
-    lotSize: volumeToLots(closeDetail.closedVolume || deal.filledVolume || deal.volume),
-    riskPercentage: 0,
-    plannedRR: 0,
-    achievedRR: 0,
-    profitLoss,
-    status: "Closed",
-    openedAt: new Date(deal.createTimestamp || deal.executionTimestamp),
-    closedAt: new Date(deal.executionTimestamp || deal.createTimestamp),
-    notes: "Imported from cTrader.",
-    source: "ctrader",
-    externalId: `${ctidTraderAccountId}:${deal.dealId}`,
-    externalPositionId: deal.positionId != null ? String(deal.positionId) : undefined,
-    externalOrderId: deal.orderId != null ? String(deal.orderId) : undefined,
-    rawSource: {
-      provider: "ctrader",
-      ctidTraderAccountId: String(ctidTraderAccountId),
-      dealId: deal.dealId,
-      orderId: deal.orderId,
-      positionId: deal.positionId,
-      symbolId: deal.symbolId,
-    },
-  };
 }
 
 async function upsertTradingAccountFromCTrader({ userId, snapshot }) {
@@ -189,48 +96,6 @@ async function upsertTradingAccountFromCTrader({ userId, snapshot }) {
   );
 
   return tradingAccount;
-}
-
-function mapCTraderPosition({ position, ctidTraderAccountId, symbolLookup, moneyDigits }) {
-  const tradeData = position?.tradeData || {};
-  if (!position?.positionId || !tradeData.symbolId) return null;
-
-  const symbol =
-    symbolLookup.get(String(tradeData.symbolId)) ||
-    `SYMBOL-${String(tradeData.symbolId)}`;
-  const positionMoneyDigits = position.moneyDigits ?? moneyDigits;
-
-  return {
-    provider: "ctrader",
-    ctidTraderAccountId: String(ctidTraderAccountId),
-    externalPositionId: String(position.positionId),
-    symbol,
-    symbolId: String(tradeData.symbolId),
-    direction: tradeData.tradeSide === TRADE_SIDE_SELL ? "short" : "long",
-    volume: Number(tradeData.volume || 0),
-    lotSize: volumeToLots(tradeData.volume),
-    entryPrice: Number(position.price || 0),
-    stopLoss: position.stopLoss,
-    takeProfit: position.takeProfit,
-    swap: moneyToNumber(position.swap, positionMoneyDigits),
-    commission: moneyToNumber(position.commission, positionMoneyDigits),
-    usedMargin: moneyToNumber(position.usedMargin, positionMoneyDigits),
-    status: position.positionStatus === 1 ? "open" : "unknown",
-    openedAt: tradeData.openTimestamp ? new Date(tradeData.openTimestamp) : undefined,
-    brokerUpdatedAt: position.utcLastUpdateTimestamp
-      ? new Date(position.utcLastUpdateTimestamp)
-      : undefined,
-    syncedAt: new Date(),
-    label: tradeData.label,
-    comment: tradeData.comment,
-    rawSource: {
-      provider: "ctrader",
-      ctidTraderAccountId: String(ctidTraderAccountId),
-      positionId: position.positionId,
-      symbolId: tradeData.symbolId,
-      positionStatus: position.positionStatus,
-    },
-  };
 }
 
 async function syncCTraderOpenPositions({
@@ -412,10 +277,9 @@ function getCTraderConfig() {
 
   brokerLog("config", {
     hasClientId: Boolean(clientId),
-    clientId: redactSecret(clientId),
     hasClientSecret: Boolean(clientSecret),
-    redirectUri,
-    clientOrigin,
+    hasRedirectUri: Boolean(redirectUri),
+    hasClientOrigin: Boolean(clientOrigin),
   });
 
   if (!clientId || !clientSecret || !redirectUri) {
@@ -479,8 +343,6 @@ function resolveOAuthState({ state, req }) {
   brokerLog("oauth-state:resolve", {
     hasQueryState: Boolean(state),
     hasCookieState: Boolean(cookieState),
-    queryState: redactSecret(state),
-    cookieState: redactSecret(cookieState),
   });
 
   if (!rawState) return null;
@@ -496,7 +358,6 @@ function resolveOAuthState({ state, req }) {
   } catch (error) {
     brokerWarn("oauth-state:invalid", {
       message: error.message,
-      rawState: redactSecret(rawState),
     });
     return null;
   }
@@ -567,9 +428,9 @@ async function exchangeCTraderCode(code) {
   brokerLog("token-exchange:request", {
     url: `${tokenUrl.origin}${tokenUrl.pathname}`,
     grantType: "authorization_code",
-    redirectUri,
-    clientId: redactSecret(clientId),
-    code: redactSecret(code),
+    hasRedirectUri: Boolean(redirectUri),
+    hasClientId: Boolean(clientId),
+    hasCode: Boolean(code),
   });
 
   const response = await fetch(tokenUrl, {
@@ -601,8 +462,6 @@ async function exchangeCTraderCode(code) {
     description: payload.description,
     hasAccessToken: Boolean(payload.accessToken),
     hasRefreshToken: Boolean(payload.refreshToken),
-    accessToken: redactSecret(payload.accessToken),
-    refreshToken: redactSecret(payload.refreshToken),
   });
 
   if (!response.ok || payload.errorCode || !payload.accessToken) {
@@ -798,7 +657,9 @@ async function listBrokerPositions(user, filters = {}) {
     .lean();
 
   brokerLog("positions:list:done", { count: positions.length });
-  return positions;
+  return positions.map((position) =>
+    cTraderManager.enrichPositionForClient(position),
+  );
 }
 
 async function syncCTraderConnection(user, connectionId) {
@@ -887,11 +748,10 @@ async function syncCTraderConnection(user, connectionId) {
 function getCallbackIdentity({ code, state, error, errorDescription, req }) {
   brokerLog("callback:start", {
     hasCode: Boolean(code),
-    code: redactSecret(code),
     hasState: Boolean(state),
     error: error || null,
     errorDescription: errorDescription || null,
-    query: req?.query,
+    hasCookieHeader: Boolean(req?.headers?.cookie),
   });
 
   if (error) {
@@ -941,7 +801,7 @@ async function completeCTraderConnectForUser({ user, code }) {
   const userId = getUserId(user);
   brokerLog("callback:authenticated", {
     userId: userId ? String(userId) : null,
-    code: redactSecret(code),
+    hasCode: Boolean(code),
   });
 
   if (!userId) {

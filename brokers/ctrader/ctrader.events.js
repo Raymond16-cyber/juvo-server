@@ -289,6 +289,8 @@ async function handleCTraderExecutionEvent({ payload, context }) {
     context?.symbolLookups?.get(String(ctidTraderAccountId)) || buildSymbolLookup();
   const moneyDigits =
     context?.moneyDigitsByAccount?.get(String(ctidTraderAccountId)) ?? 2;
+  const symbolId = payload.position?.tradeData?.symbolId || payload.deal?.symbolId;
+  const positionId = payload.position?.positionId || payload.deal?.positionId;
 
   if (
     payload.position?.positionStatus === CTRADER_POSITION_STATUS.OPEN ||
@@ -296,6 +298,11 @@ async function handleCTraderExecutionEvent({ payload, context }) {
     payload.executionType === CTRADER_EXECUTION_TYPE.ORDER_PARTIAL_FILL
   ) {
     await upsertOpenPosition({ owner, payload, symbolLookup, moneyDigits });
+    await context?.ensureSpotSubscription?.({
+      ctidTraderAccountId,
+      symbolId,
+      positionId,
+    });
   }
 
   if (payload.position?.positionStatus === CTRADER_POSITION_STATUS.CLOSED) {
@@ -304,7 +311,17 @@ async function handleCTraderExecutionEvent({ payload, context }) {
       positionId: String(payload.position.positionId),
     });
 
-    return upsertClosedTrade({ owner, payload, symbolLookup, moneyDigits });
+    const trade = await upsertClosedTrade({ owner, payload, symbolLookup, moneyDigits });
+    await context?.releaseSpotSubscription?.({
+      ctidTraderAccountId,
+      symbolId,
+      positionId,
+    });
+    context?.releasePositionPnl?.({
+      ctidTraderAccountId,
+      positionId,
+    });
+    return trade;
   }
 
   return null;
