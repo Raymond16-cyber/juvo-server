@@ -6,10 +6,12 @@ function isValidObjectId(value) {
 
 function toOptionalNumber(value) {
   if (value === undefined || value === null || value === "") return undefined;
-  return Number(value);
+  if (typeof value !== "number" && typeof value !== "string") return NaN;
+  return String(value).trim() ? Number(value) : NaN;
 }
 
 function validateJournalInput(payload = {}) {
+  payload = payload || {};
   const errors = [];
   const tradingAccount = String(payload.tradingAccount || "").trim();
   const tradingPlan = String(payload.tradingPlan || "").trim();
@@ -50,38 +52,50 @@ function validateJournalInput(payload = {}) {
 }
 
 function validateTradeInput(payload = {}) {
+  payload = payload || {};
   const errors = [];
   const symbol = String(payload.symbol || "").trim().toUpperCase();
   const instrument = String(payload.instrument || "").trim().toLowerCase();
   const direction = String(payload.direction || "").trim().toLowerCase();
   const session = String(payload.session || "").trim();
 
-  const entryPrice = Number(payload.entryPrice || 0);
+  const entryPrice = toOptionalNumber(payload.entryPrice);
   const exitPrice = toOptionalNumber(payload.exitPrice);
-  const stopLoss = Number(payload.stopLoss || 0);
-  const takeProfit = Number(payload.takeProfit || 0);
-  const lotSize = Number(payload.lotSize || 0);
-  const riskPercentage = Number(payload.riskPercentage || 0);
-  const plannedRR = Number(payload.plannedRR || 0);
+  const stopLoss = toOptionalNumber(payload.stopLoss);
+  const takeProfit = toOptionalNumber(payload.takeProfit);
+  const lotSize = toOptionalNumber(payload.lotSize);
+  const riskPercentage = toOptionalNumber(payload.riskPercentage);
+  const plannedRR = toOptionalNumber(payload.plannedRR);
   const achievedRR = toOptionalNumber(payload.achievedRR);
   const profitLoss = toOptionalNumber(payload.profitLoss);
   const pips = toOptionalNumber(payload.pips);
   const status = String(payload.status || "Open").trim();
+  const openedAt = payload.openedAt ? new Date(payload.openedAt) : new Date();
+  const tradingAccount = String(payload.tradingAccount || "").trim();
 
   if (!symbol) errors.push("Symbol is required.");
   if (!["forex", "stocks", "crypto", "commodities", "indices", "others"].includes(instrument)) {
     errors.push("Instrument is required.");
   }
   if (!["long", "short"].includes(direction)) errors.push("Direction is required.");
-  if (!entryPrice || entryPrice <= 0) errors.push("Entry price must be greater than zero.");
-  if (!stopLoss || stopLoss <= 0) errors.push("Stop loss must be greater than zero.");
-  if (!takeProfit || takeProfit <= 0) errors.push("Take profit must be greater than zero.");
-  if (!lotSize || lotSize <= 0) errors.push("Lot size must be greater than zero.");
-  if (!riskPercentage || riskPercentage <= 0) errors.push("Risk percentage must be greater than zero.");
-  if (!plannedRR || plannedRR <= 0) errors.push("Planned RR must be greater than zero.");
-  if (!["Open", "Closed", "Breakeven", "Cancelled"].includes(status)) {
-    errors.push("Trade status is invalid.");
+  for (const [label, value] of Object.entries({
+    "Entry price": entryPrice, "Stop loss": stopLoss, "Take profit": takeProfit,
+    "Lot size": lotSize, "Risk percentage": riskPercentage, "Planned RR": plannedRR,
+  })) {
+    if (!Number.isFinite(value) || value <= 0) errors.push(`${label} must be a finite number greater than zero.`);
   }
+  if (riskPercentage > 100) errors.push("Risk percentage cannot exceed 100.");
+  if (direction === "long" && (stopLoss >= entryPrice || takeProfit <= entryPrice)) {
+    errors.push("For a long trade, stop loss must be below entry and take profit above entry.");
+  }
+  if (direction === "short" && (stopLoss <= entryPrice || takeProfit >= entryPrice)) {
+    errors.push("For a short trade, stop loss must be above entry and take profit below entry.");
+  }
+  if (status !== "Open" || exitPrice !== undefined || profitLoss !== undefined || achievedRR !== undefined || pips !== undefined || payload.closedAt) {
+    errors.push("Create an open trade first, then use the close-trade action to record its result.");
+  }
+  if (!Number.isFinite(openedAt.getTime())) errors.push("Opened date is invalid.");
+  if (tradingAccount && !isValidObjectId(tradingAccount)) errors.push("Trading account is invalid.");
   if (session && !["Asian", "Tokyo", "London", "New York"].includes(session)) {
     errors.push("Trading session is invalid.");
   }
@@ -105,7 +119,8 @@ function validateTradeInput(payload = {}) {
       ...(pips !== undefined ? { pips } : {}),
       status,
       ...(session ? { session } : {}),
-      openedAt: payload.openedAt ? new Date(payload.openedAt) : new Date(),
+      openedAt,
+      ...(tradingAccount ? { tradingAccount } : {}),
       ...(payload.closedAt ? { closedAt: new Date(payload.closedAt) } : {}),
       screenshots: Array.isArray(payload.screenshots) ? payload.screenshots : [],
       notes: String(payload.notes || "").trim(),
@@ -114,6 +129,7 @@ function validateTradeInput(payload = {}) {
 }
 
 function validateCompleteJournalInput(payload = {}) {
+  payload = payload || {};
   const errors = [];
   const afterTrading = String(payload.afterTrading || "").trim();
   const confidenceAfter = toOptionalNumber(payload.confidenceAfter);
@@ -166,7 +182,7 @@ function validateCompleteJournalInput(payload = {}) {
   const score =
     answeredFlags === 0
       ? undefined
-      : Math.round((disciplineFlags.filter(Boolean).length / 5) * 100);
+      : Math.round((disciplineFlags.filter(Boolean).length / answeredFlags) * 100);
 
   return {
     isValid: errors.length === 0,
@@ -198,19 +214,29 @@ function validateCompleteJournalInput(payload = {}) {
 }
 
 function validateCloseTradeInput(payload = {}) {
+  payload = payload || {};
   const errors = [];
-  const exitPrice = Number(payload.exitPrice);
+  const exitPrice = toOptionalNumber(payload.exitPrice);
   const profitLoss = toOptionalNumber(payload.profitLoss);
   const pips = toOptionalNumber(payload.pips);
   const achievedRR = toOptionalNumber(payload.achievedRR);
   const status = String(payload.status || "Closed").trim();
   const notes = String(payload.notes || "").trim();
+  const closedAt = payload.closedAt ? new Date(payload.closedAt) : new Date();
 
   if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
     errors.push("Exit price must be greater than zero.");
   }
   if (!["Closed", "Breakeven", "Cancelled"].includes(status)) {
     errors.push("Close status is invalid.");
+  }
+  for (const [label, value] of Object.entries({ "Profit/loss": profitLoss, Pips: pips, "Achieved RR": achievedRR })) {
+    if (value !== undefined && !Number.isFinite(value)) errors.push(`${label} must be a finite number.`);
+  }
+  if (!Number.isFinite(closedAt.getTime())) errors.push("Closed date is invalid.");
+  if (["Cancelled", "Breakeven"].includes(status) &&
+      ((profitLoss !== undefined && profitLoss !== 0) || (achievedRR !== undefined && achievedRR !== 0))) {
+    errors.push("Cancelled and breakeven trades must have zero profit/loss and achieved RR.");
   }
 
   return {
@@ -219,7 +245,7 @@ function validateCloseTradeInput(payload = {}) {
     data: {
       exitPrice,
       status,
-      closedAt: payload.closedAt ? new Date(payload.closedAt) : new Date(),
+      closedAt,
       ...(profitLoss !== undefined ? { profitLoss } : {}),
       ...(pips !== undefined ? { pips } : {}),
       ...(achievedRR !== undefined ? { achievedRR } : {}),

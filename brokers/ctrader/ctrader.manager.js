@@ -388,6 +388,57 @@ class CTraderSharedConnection {
     return true;
   }
 
+  async unregisterConnection(connection) {
+    const accountKey = String(connection?.externalAccountId || "");
+    if (!accountKey) return false;
+
+    for (const [key, subscription] of Array.from(this.spotSubscriptions)) {
+      if (subscription.ctidTraderAccountId !== accountKey) continue;
+
+      if (this.connected && this.socket && subscription.subscribed) {
+        try {
+          await this.socket.sendRequest(
+            CTRADER_PAYLOAD_TYPES.UNSUBSCRIBE_SPOTS_REQ,
+            {
+              ctidTraderAccountId: Number(subscription.ctidTraderAccountId),
+              symbolId: [Number(subscription.symbolId)],
+            },
+            {
+              expectedPayloadType: CTRADER_PAYLOAD_TYPES.UNSUBSCRIBE_SPOTS_RES,
+            },
+          );
+        } catch (error) {
+          brokerWarn("ctrader:spots:disconnect-unsubscribe:error", {
+            account: accountKey,
+            symbol: subscription.symbolId,
+            message: error.message,
+          });
+        }
+      }
+
+      this.spotSubscriptions.delete(key);
+      this.quoteCache.delete(key);
+    }
+
+    this.stopPnlPolling(accountKey);
+    this.accounts.delete(accountKey);
+    this.symbolLookups.delete(accountKey);
+    this.symbolMetadataByAccount.delete(accountKey);
+    this.moneyDigitsByAccount.delete(accountKey);
+
+    for (const key of Array.from(this.pnlCache.keys())) {
+      if (key.startsWith(`${accountKey}:`)) this.pnlCache.delete(key);
+    }
+
+    brokerLog("ctrader:manager:account:unregistered", {
+      environment: this.environment,
+      connectionId: String(connection._id),
+      ctidTraderAccountId: accountKey,
+    });
+
+    return true;
+  }
+
   async reauthenticateAccounts() {
     const accountTypeQuery =
       this.environment === "live" ? "live" : { $ne: "live" };
@@ -755,6 +806,14 @@ class CTraderManager {
     const environment = connectionEnvironment(connection);
     const sharedConnection = this.connections.get(environment);
     return sharedConnection?.registerConnection(connection);
+  }
+
+  async disconnectBrokerConnection(connection) {
+    if (!connection) return false;
+
+    const environment = connectionEnvironment(connection);
+    const sharedConnection = this.connections.get(environment);
+    return sharedConnection?.unregisterConnection(connection);
   }
 
   enrichPositionForClient(position) {

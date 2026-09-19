@@ -47,6 +47,11 @@ const tradingAccountSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    accountCurrency: {
+        type: String,
+        uppercase: true,
+        trim: true,
+    },
     currentEquity: {
         type: Number,
         required: true,
@@ -116,6 +121,13 @@ const tradingAccountSchema = new mongoose.Schema({
     },
 }, {
     timestamps: true,
+});
+
+tradingAccountSchema.pre("validate", function setAccountCurrency(next) {
+    if (!this.accountCurrency && this.currency) {
+        this.accountCurrency = this.currency;
+    }
+    next();
 });
 
 tradingAccountSchema.index(

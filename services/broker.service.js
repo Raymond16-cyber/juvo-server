@@ -57,6 +57,7 @@ async function upsertTradingAccountFromCTrader({ userId, snapshot }) {
   const brokerTitle = getBrokerTitle(account, trader);
   const moneyDigits = trader.moneyDigits ?? 2;
   const balance = moneyToNumber(trader.balance, moneyDigits);
+  const accountCurrency = getDepositCurrency(trader, snapshot.assets);
   const leverage = trader.leverageInCents
     ? `1:${Math.round(Number(trader.leverageInCents) / 100)}`
     : "1:1";
@@ -75,7 +76,8 @@ async function upsertTradingAccountFromCTrader({ userId, snapshot }) {
         currentBalance: balance,
         currentEquity: balance,
         leverage,
-        currency: getDepositCurrency(trader, snapshot.assets),
+        currency: accountCurrency,
+        accountCurrency,
         isConnected: true,
         isArchived: false,
         lastSyncedAt: new Date(),
@@ -139,6 +141,7 @@ async function syncCTraderOpenPositions({
           userId,
           tradingAccount: tradingAccount._id,
           brokerConnection: brokerConnectionId,
+          moneyCurrency: tradingAccount.accountCurrency || tradingAccount.currency,
           closedAt: undefined,
         },
       },
@@ -239,6 +242,7 @@ async function importCTraderClosedDeals({ userId, tradingAccount, snapshot }) {
 
     const trade = await Trade.create({
       ...tradePayload,
+      profitLossCurrency: tradingAccount.accountCurrency || tradingAccount.currency,
       user: userId,
       journal: journal._id,
       tradingAccount: tradingAccount._id,
@@ -652,7 +656,10 @@ async function listBrokerPositions(user, filters = {}) {
   if (filters.tradingAccount) query.tradingAccount = filters.tradingAccount;
 
   const positions = await BrokerPosition.find(query)
-    .populate("tradingAccount", "accountName accountNumber broker platform currency")
+    .populate(
+      "tradingAccount",
+      "accountName accountNumber broker platform currency accountCurrency",
+    )
     .sort({ status: 1, openedAt: -1, updatedAt: -1 })
     .lean();
 
@@ -742,6 +749,91 @@ async function syncCTraderConnection(user, connectionId) {
     closedPositions: positionSync.markedClosed,
     pendingOrders: snapshot.orders.length,
     hasMoreDeals: snapshot.hasMoreDeals,
+  };
+}
+
+async function disconnectCTraderConnection(user, connectionId) {
+  const userId = getUserId(user);
+  brokerLog("ctrader:disconnect:start", {
+    userId: userId ? String(userId) : null,
+    connectionId: connectionId || null,
+  });
+
+  if (!userId) {
+    throw httpError("User is not signed in.", 401);
+  }
+
+  if (!connectionId) {
+    throw httpError("Broker connection id is required.", 400);
+  }
+
+  const connection = await BrokerConnection.findOne({
+    _id: connectionId,
+    userId,
+    provider: "ctrader",
+  }).select("+accessToken +refreshToken");
+
+  if (!connection) {
+    throw httpError("cTrader broker connection not found.", 404);
+  }
+
+  await cTraderManager.disconnectBrokerConnection(connection);
+
+  const now = new Date();
+  const tradingAccount = connection.externalAccountId
+    ? await TradingAccount.findOneAndUpdate(
+        {
+          userId,
+          accountNumber: String(connection.externalAccountId),
+          platform: "ctrader",
+        },
+        {
+          $set: {
+            isConnected: false,
+            lastSyncedAt: now,
+          },
+        },
+        { new: true },
+      )
+    : null;
+
+  const positionsResult = connection.externalAccountId
+    ? await BrokerPosition.updateMany(
+        {
+          userId,
+          provider: "ctrader",
+          $or: [
+            { brokerConnection: connection._id },
+            { ctidTraderAccountId: String(connection.externalAccountId) },
+          ],
+          status: "open",
+        },
+        {
+          $set: {
+            status: "unknown",
+            syncedAt: now,
+          },
+        },
+      )
+    : { modifiedCount: 0 };
+
+  connection.accessToken = undefined;
+  connection.refreshToken = undefined;
+  connection.tokenExpiresAt = undefined;
+  connection.status = "disconnected";
+  connection.lastSyncedAt = now;
+  await connection.save();
+
+  brokerLog("ctrader:disconnect:done", {
+    connectionId: String(connection._id),
+    tradingAccountId: tradingAccount?._id ? String(tradingAccount._id) : null,
+    markedPositionsUnknown: positionsResult.modifiedCount || 0,
+  });
+
+  return {
+    connection: connection.toJSON(),
+    tradingAccountId: tradingAccount?._id ? String(tradingAccount._id) : null,
+    markedPositionsUnknown: positionsResult.modifiedCount || 0,
   };
 }
 
@@ -839,6 +931,7 @@ export {
   listBrokerConnections,
   listBrokerPositions,
   syncCTraderConnection,
+  disconnectCTraderConnection,
   getCTraderConfig,
   getFrontendBrokerUrl,
   setOAuthCookie,

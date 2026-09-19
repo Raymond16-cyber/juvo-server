@@ -107,6 +107,13 @@ const userSchema = new mongoose.Schema(
         default: "USD",
       },
 
+      reportingCurrency: {
+        type: String,
+        uppercase: true,
+        trim: true,
+        default: "USD",
+      },
+
       weekStartsOn: {
         type: String,
         enum: ["sunday", "monday"],

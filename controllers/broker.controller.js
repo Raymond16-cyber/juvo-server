@@ -2,6 +2,7 @@ import {
   clearOAuthCookie,
   completeCTraderCallback,
   completeCTraderConnectForUser,
+  disconnectCTraderConnection,
   getCallbackIdentity,
   getCTraderConfig,
   getFrontendBrokerUrl,
@@ -188,6 +189,28 @@ export async function syncCTrader(req, res, next) {
     });
   } catch (error) {
     brokerError("controller:sync:error", error);
+    next(error);
+  }
+}
+
+export async function disconnectCTrader(req, res, next) {
+  brokerLog("controller:disconnect:hit", {
+    userId: req.user?.id || req.user?._id,
+    connectionId: req.body?.connectionId || req.query?.connectionId,
+  });
+
+  try {
+    const result = await disconnectCTraderConnection(
+      req.user,
+      req.body?.connectionId || req.query?.connectionId,
+    );
+
+    return res.status(200).json({
+      message: "cTrader disconnected successfully.",
+      data: result,
+    });
+  } catch (error) {
+    brokerError("controller:disconnect:error", error);
     next(error);
   }
 }

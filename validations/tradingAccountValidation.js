@@ -10,7 +10,9 @@ function validateTradingAccountInput(payload) {
   const platform = (payload.platform || "").trim().toLowerCase();
   const server = (payload.server || "").trim().toLowerCase();
   const leverage = (payload.leverage || "").trim().toLowerCase();
-  const currency = (payload.currency || "").trim().toUpperCase();
+  const currency = (payload.accountCurrency || payload.currency || "")
+    .trim()
+    .toUpperCase();
   const currentEquity = Number(payload.initialBalance || 0);
   const maxDrawnDown = Number(payload.maxDrawnDown || 0);
   const profitTarget = Number(payload.profitTarget || 0);
@@ -24,6 +26,9 @@ function validateTradingAccountInput(payload) {
   if (!platform) error.push("Platform is required.");
   if (!leverage) error.push("Leverage is required.");
   if (!currency) error.push("Currency is required.");
+  if (currency && !/^[A-Z]{3}$/.test(currency)) {
+    error.push("Currency must be a valid 3-letter ISO code.");
+  }
   if (!currentEquity) error.push("Please provide initial balance.");
   if (maxDrawnDown < 0) error.push("Maximum drawdown cannot be negative.");
   if (profitTarget < 0) error.push("Profit target cannot be negative.");
@@ -42,6 +47,7 @@ function validateTradingAccountInput(payload) {
       server,
       leverage,
       currency,
+      accountCurrency: currency,
       currentEquity,
       maxDrawnDown,
       profitTarget,

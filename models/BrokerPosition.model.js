@@ -65,6 +65,12 @@ const BrokerPositionSchema = new mongoose.Schema(
     swap: Number,
     commission: Number,
     usedMargin: Number,
+    moneyCurrency: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: null,
+    },
 
     status: {
       type: String,

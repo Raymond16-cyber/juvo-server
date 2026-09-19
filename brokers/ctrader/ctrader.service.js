@@ -68,17 +68,37 @@ async function authorizeCTraderAccount(socket, { ctidTraderAccountId, accessToke
     hasAccessToken: Boolean(accessToken),
   });
 
-  const response = await socket.sendRequest(
-    CTRADER_PAYLOAD_TYPES.ACCOUNT_AUTH_REQ,
-    {
-      ctidTraderAccountId: toCTraderAccountId(ctidTraderAccountId),
-      accessToken,
-    },
-    {
-      expectedPayloadType: CTRADER_PAYLOAD_TYPES.ACCOUNT_AUTH_RES,
-      timeoutMs: CTRADER_SOCKET_TIMEOUT_MS,
-    },
-  );
+  let response;
+  try {
+    response = await socket.sendRequest(
+      CTRADER_PAYLOAD_TYPES.ACCOUNT_AUTH_REQ,
+      {
+        ctidTraderAccountId: toCTraderAccountId(ctidTraderAccountId),
+        accessToken,
+      },
+      {
+        expectedPayloadType: CTRADER_PAYLOAD_TYPES.ACCOUNT_AUTH_RES,
+        timeoutMs: CTRADER_SOCKET_TIMEOUT_MS,
+      },
+    );
+  } catch (error) {
+    if (
+      String(error?.message || "")
+        .toLowerCase()
+        .includes("already authorized")
+    ) {
+      brokerLog("ctrader:account-auth:already-authorized", {
+        ctidTraderAccountId: String(ctidTraderAccountId),
+      });
+      return {
+        payloadType: CTRADER_PAYLOAD_TYPES.ACCOUNT_AUTH_RES,
+        payload: { ctidTraderAccountId: toCTraderAccountId(ctidTraderAccountId) },
+        alreadyAuthorized: true,
+      };
+    }
+
+    throw error;
+  }
 
   brokerLog("ctrader:account-auth:success", {
     ctidTraderAccountId: String(response.payload?.ctidTraderAccountId),

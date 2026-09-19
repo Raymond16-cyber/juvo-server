@@ -83,6 +83,26 @@ const tradeSchema = new mongoose.Schema(
       default: 0,
     },
 
+    profitLossCurrency: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: null,
+    },
+
+    normalizedProfitLoss: {
+      amount: Number,
+      currency: {
+        type: String,
+        uppercase: true,
+        trim: true,
+      },
+      rate: Number,
+      rateAt: Date,
+      source: String,
+      unavailableReason: String,
+    },
+
     pips: Number,
 
     status: {

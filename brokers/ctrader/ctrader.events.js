@@ -36,6 +36,7 @@ function safeTradeForRealtime(trade) {
     plannedRR: plain.plannedRR,
     achievedRR: plain.achievedRR,
     profitLoss: plain.profitLoss,
+    profitLossCurrency: plain.profitLossCurrency,
     status: plain.status,
     source: plain.source,
     externalId: plain.externalId,
@@ -70,6 +71,7 @@ function safePositionForRealtime(position) {
     swap: plain.swap,
     commission: plain.commission,
     usedMargin: plain.usedMargin,
+    moneyCurrency: plain.moneyCurrency,
     status: plain.status,
     openedAt: plain.openedAt,
     brokerUpdatedAt: plain.brokerUpdatedAt,
@@ -153,6 +155,8 @@ async function upsertOpenPosition({ owner, payload, symbolLookup, moneyDigits })
         userId: owner.userId,
         tradingAccount: owner.tradingAccount._id,
         brokerConnection: owner.brokerConnectionId,
+        moneyCurrency:
+          owner.tradingAccount.accountCurrency || owner.tradingAccount.currency,
       },
     },
     { new: true, upsert: true },
@@ -206,6 +210,8 @@ async function upsertClosedTrade({ owner, payload, symbolLookup, moneyDigits }) 
         user: owner.userId,
         journal: journal._id,
         tradingAccount: owner.tradingAccount._id,
+        profitLossCurrency:
+          owner.tradingAccount.accountCurrency || owner.tradingAccount.currency,
       },
     },
     { new: true, upsert: true },

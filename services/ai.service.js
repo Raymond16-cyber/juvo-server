@@ -5,6 +5,10 @@ import Journal from "../models/Journal.js";
 import "../models/Trades.js";
 import User from "../models/User.js";
 import {
+  resolveReportingCurrency,
+  resolveTradeCurrency,
+} from "./currency/currency.utils.js";
+import {
   JUVO_CHAT_SYSTEM_INSTRUCTIONS,
   JUVO_JOURNAL_ANALYSIS_INSTRUCTIONS,
 } from "../prompts/aiPrompts.js";
@@ -161,12 +165,14 @@ async function buildTraderContext(userId) {
       )
       .populate(
         "trades",
-        "symbol instrument direction status profitLoss plannedRR achievedRR session notes openedAt closedAt",
+        "symbol instrument direction status profitLoss profitLossCurrency plannedRR achievedRR session notes openedAt closedAt tradingAccount",
       )
+      .populate("tradingAccount", "currency accountCurrency")
       .sort({ journalDate: -1 })
       .limit(12)
       .lean(),
   ]);
+  const reportingCurrency = resolveReportingCurrency(user);
 
   const recentJournals = journals.map((journal) => {
     const trades = journal.trades || [];
@@ -183,6 +189,11 @@ async function buildTraderContext(userId) {
         direction: trade.direction,
         status: trade.status,
         profitLoss: trade.profitLoss,
+        profitLossCurrency: resolveTradeCurrency(
+          trade,
+          journal.tradingAccount,
+          reportingCurrency,
+        ),
         plannedRR: trade.plannedRR,
         achievedRR: trade.achievedRR,
         session: trade.session,
@@ -199,6 +210,7 @@ async function buildTraderContext(userId) {
       instruments: user?.profile?.instruments,
       biggestChallenges: user?.profile?.biggestChallenges,
       timezone: user?.profile?.timezone,
+      reportingCurrency,
       stats: user?.stats,
     },
     recentJournals,
@@ -210,6 +222,11 @@ async function analyzeJournalWithAi(journal) {
   const payload = {
     date: journal.journalDate,
     status: journal.status,
+    journalCurrency: resolveTradeCurrency(
+      trades[0],
+      journal.tradingAccount,
+      "USD",
+    ),
     psychology: journal.psychology,
     review: journal.review,
     discipline: journal.discipline,
@@ -219,6 +236,11 @@ async function analyzeJournalWithAi(journal) {
       direction: trade.direction,
       status: trade.status,
       profitLoss: trade.profitLoss,
+      profitLossCurrency: resolveTradeCurrency(
+        trade,
+        trade.tradingAccount || journal.tradingAccount,
+        "USD",
+      ),
       plannedRR: trade.plannedRR,
       achievedRR: trade.achievedRR,
       session: trade.session,

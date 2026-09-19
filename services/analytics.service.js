@@ -2,6 +2,13 @@ import BehaviouralInsight from "../models/behaviouralInsights.js";
 import Journal from "../models/Journal.js";
 import Trade from "../models/Trades.js";
 import TradingAccount from "../models/tradingAccounts.js";
+import User from "../models/User.js";
+import { currencyService } from "./currency/currency.service.js";
+import {
+  resolveAccountCurrency,
+  resolveReportingCurrency,
+  resolveTradeCurrency,
+} from "./currency/currency.utils.js";
 
 function percent(part, whole) {
   if (!whole) return 0;
@@ -12,17 +19,131 @@ function round(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
 }
 
+function getAccountIdFromTrade(trade, journal) {
+  return (
+    trade.tradingAccount?._id ||
+    trade.tradingAccount ||
+    journal.tradingAccount?._id ||
+    journal.tradingAccount
+  );
+}
+
+function isClosedTrade(trade) {
+  return trade.status === "Closed" || trade.status === "Breakeven";
+}
+
+async function toAnalyticsTrade({ trade, journal, account, targetCurrency }) {
+  const nativeProfitLoss = Number(trade.profitLoss || 0);
+  const nativeCurrency = resolveTradeCurrency(
+    trade,
+    account || trade.tradingAccount || journal.tradingAccount,
+    targetCurrency,
+  );
+  const closedAt = trade.closedAt || journal.journalDate || new Date();
+
+  if (!nativeCurrency) {
+    return {
+      ...trade,
+      journalDate: journal.journalDate,
+      journalId: journal._id,
+      nativeProfitLoss,
+      nativeCurrency: null,
+      moneyValue: null,
+      moneyCurrency: targetCurrency,
+      conversionUnavailable: true,
+      conversionUnavailableReason: "missing_currency",
+    };
+  }
+
+  if (nativeProfitLoss === 0) {
+    return {
+      ...trade,
+      journalDate: journal.journalDate,
+      journalId: journal._id,
+      nativeProfitLoss,
+      nativeCurrency,
+      moneyValue: 0,
+      moneyCurrency: targetCurrency,
+      conversionUnavailable: false,
+      fx: {
+        rate: nativeCurrency === targetCurrency ? 1 : null,
+        source: "zero-amount",
+        rateAt: new Date(closedAt).toISOString(),
+        kind: isClosedTrade(trade) ? "historical" : "current",
+      },
+    };
+  }
+
+  try {
+    const converted = isClosedTrade(trade)
+      ? await currencyService.convertClosedTrade({
+          amount: nativeProfitLoss,
+          from: nativeCurrency,
+          to: targetCurrency,
+          closedAt,
+        })
+      : await currencyService.convertOpenPosition({
+          amount: nativeProfitLoss,
+          from: nativeCurrency,
+          to: targetCurrency,
+        });
+
+    return {
+      ...trade,
+      journalDate: journal.journalDate,
+      journalId: journal._id,
+      nativeProfitLoss,
+      nativeCurrency,
+      moneyValue: converted.amount,
+      moneyCurrency: targetCurrency,
+      conversionUnavailable: false,
+      fx: {
+        rate: converted.rate,
+        source: converted.source,
+        rateAt: converted.rateAt,
+        kind: converted.kind,
+      },
+    };
+  } catch (error) {
+    return {
+      ...trade,
+      journalDate: journal.journalDate,
+      journalId: journal._id,
+      nativeProfitLoss,
+      nativeCurrency,
+      moneyValue: null,
+      moneyCurrency: targetCurrency,
+      conversionUnavailable: true,
+      conversionUnavailableReason: error.code || "fx_rate_unavailable",
+    };
+  }
+}
+
 async function getAnalyticsService(userId, tradingAccountId) {
-  const accounts = await TradingAccount.find({
-    userId,
-    isArchived: false,
-  }).lean();
+  const [user, accounts] = await Promise.all([
+    User.findById(userId).select("preferences reportingCurrency").lean(),
+    TradingAccount.find({
+      userId,
+      isArchived: false,
+    }).lean(),
+  ]);
+
+  const reportingCurrency = resolveReportingCurrency(user);
   const selectedAccount = tradingAccountId
     ? accounts.find(
         (account) => String(account._id) === String(tradingAccountId),
       )
     : null;
+  if (tradingAccountId && !selectedAccount) {
+    throw Object.assign(new Error("Trading account not found."), { status: 404 });
+  }
   const scopedAccounts = selectedAccount ? [selectedAccount] : accounts;
+  const displayCurrency = selectedAccount
+    ? resolveAccountCurrency(selectedAccount, reportingCurrency)
+    : reportingCurrency;
+  const accountById = new Map(
+    accounts.map((account) => [String(account._id), account]),
+  );
 
   const journalQuery = { user: userId };
   if (selectedAccount) {
@@ -42,9 +163,12 @@ async function getAnalyticsService(userId, tradingAccountId) {
     )
     .populate(
       "trades",
-      "symbol instrument direction status profitLoss plannedRR achievedRR session openedAt closedAt riskPercentage tradingAccount",
+      "symbol instrument direction status profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session openedAt closedAt riskPercentage tradingAccount",
     )
-    .populate("tradingAccount", "accountName broker currency currentBalance")
+    .populate(
+      "tradingAccount",
+      "accountName broker currency accountCurrency currentBalance",
+    )
     .sort({ journalDate: 1 })
     .lean();
 
@@ -59,52 +183,60 @@ async function getAnalyticsService(userId, tradingAccountId) {
     .limit(8)
     .lean();
 
-  const trades = journals.flatMap((journal) =>
+  const tradeRows = journals.flatMap((journal) =>
     (journal.trades || [])
       .filter(
         (trade) =>
           !selectedAccount ||
-          String(
-            trade.tradingAccount?._id ||
-              trade.tradingAccount ||
-              journal.tradingAccount?._id ||
-              journal.tradingAccount,
-          ) === String(selectedAccount._id),
+          String(getAccountIdFromTrade(trade, journal)) ===
+            String(selectedAccount._id),
       )
-      .map((trade) => ({
-        ...trade,
-        journalDate: journal.journalDate,
-        journalId: journal._id,
-      })),
+      .map((trade) => {
+        const account =
+          accountById.get(String(getAccountIdFromTrade(trade, journal))) ||
+          journal.tradingAccount;
+        return { trade, journal, account };
+      }),
   );
-  const closedTrades = trades.filter(
-    (trade) => trade.status === "Closed" || trade.status === "Breakeven",
+
+  const trades = await Promise.all(
+    tradeRows.map((row) =>
+      toAnalyticsTrade({
+        ...row,
+        targetCurrency: displayCurrency,
+      }),
+    ),
   );
-  const wins = closedTrades.filter(
-    (trade) => Number(trade.profitLoss || 0) > 0,
+
+  const closedTrades = trades.filter(isClosedTrade);
+  const wins = closedTrades.filter((trade) => trade.nativeProfitLoss > 0);
+  const losses = closedTrades.filter((trade) => trade.nativeProfitLoss < 0);
+  const monetaryTrades = trades.filter((trade) =>
+    Number.isFinite(trade.moneyValue),
   );
-  const losses = closedTrades.filter(
-    (trade) => Number(trade.profitLoss || 0) < 0,
+  const monetaryClosedTrades = closedTrades.filter((trade) =>
+    Number.isFinite(trade.moneyValue),
   );
-  const netPnl = trades.reduce(
-    (total, trade) => total + Number(trade.profitLoss || 0),
+  const conversionUnavailableCount = trades.filter(
+    (trade) => trade.conversionUnavailable,
+  ).length;
+  const netPnl = monetaryClosedTrades.reduce(
+    (total, trade) => total + Number(trade.moneyValue || 0),
     0,
   );
-  const grossProfit = closedTrades.reduce(
-    (total, trade) =>
-      total + Math.max(0, Number(trade.profitLoss || 0)),
+  const grossProfit = monetaryClosedTrades.reduce(
+    (total, trade) => total + Math.max(0, Number(trade.moneyValue || 0)),
     0,
   );
-  const grossLoss = closedTrades.reduce(
-    (total, trade) =>
-      total + Math.min(0, Number(trade.profitLoss || 0)),
+  const grossLoss = monetaryClosedTrades.reduce(
+    (total, trade) => total + Math.min(0, Number(trade.moneyValue || 0)),
     0,
   );
   const profitFactor = grossLoss ? grossProfit / Math.abs(grossLoss) : 0;
   const avgRr = closedTrades.length
     ? closedTrades.reduce(
         (total, trade) =>
-          total + Number(trade.achievedRR || trade.plannedRR || 0),
+          total + Number(trade.achievedRR ?? trade.plannedRR ?? 0),
         0,
       ) / closedTrades.length
     : 0;
@@ -125,45 +257,40 @@ async function getAnalyticsService(userId, tradingAccountId) {
   trades.forEach((trade) => {
     const symbol = trade.symbol || "UNKNOWN";
     const session = trade.session || "Unspecified";
-    bySymbol[symbol] ??= { symbol, trades: 0, pnl: 0, wins: 0 };
+    const closed = isClosedTrade(trade);
+    const pnl = closed && Number.isFinite(trade.moneyValue) ? trade.moneyValue : 0;
+    bySymbol[symbol] ??= { symbol, trades: 0, closedTrades: 0, pnl: 0, wins: 0 };
     bySymbol[symbol].trades += 1;
-    bySymbol[symbol].pnl += Number(trade.profitLoss || 0);
-    if (Number(trade.profitLoss || 0) > 0) bySymbol[symbol].wins += 1;
+    bySymbol[symbol].pnl += pnl;
+    if (closed) bySymbol[symbol].closedTrades += 1;
+    if (closed && trade.nativeProfitLoss > 0) bySymbol[symbol].wins += 1;
 
-    bySession[session] ??= { session, trades: 0, pnl: 0, wins: 0 };
+    bySession[session] ??= { session, trades: 0, closedTrades: 0, pnl: 0, wins: 0 };
     bySession[session].trades += 1;
-    bySession[session].pnl += Number(trade.profitLoss || 0);
-    if (Number(trade.profitLoss || 0) > 0) bySession[session].wins += 1;
+    bySession[session].pnl += pnl;
+    if (closed) bySession[session].closedTrades += 1;
+    if (closed && trade.nativeProfitLoss > 0) bySession[session].wins += 1;
 
     const direction = trade.direction === "short" ? "short" : "long";
     byDirection[direction].trades += 1;
-    byDirection[direction].pnl += Number(trade.profitLoss || 0);
-    if (trade.status === "Closed" || trade.status === "Breakeven") {
+    byDirection[direction].pnl += pnl;
+    if (isClosedTrade(trade)) {
       byDirection[direction].closedTrades += 1;
-      if (Number(trade.profitLoss || 0) > 0) byDirection[direction].wins += 1;
-      if (Number(trade.profitLoss || 0) < 0) byDirection[direction].losses += 1;
+      if (trade.nativeProfitLoss > 0) byDirection[direction].wins += 1;
+      if (trade.nativeProfitLoss < 0) byDirection[direction].losses += 1;
     }
   });
 
-  let running = scopedAccounts.reduce(
-    (total, account) => total + Number(account.initialBalance || 0),
-    0,
-  );
+  let running = selectedAccount ? Number(selectedAccount.initialBalance || 0) : 0;
   let peakEquity = running;
   let maxDrawdown = 0;
   const equityCurve = journals.map((journal) => {
-    const journalTrades = (journal.trades || []).filter(
-      (trade) =>
-        !selectedAccount ||
-        String(
-          trade.tradingAccount?._id ||
-            trade.tradingAccount ||
-            journal.tradingAccount?._id ||
-            journal.tradingAccount,
-        ) === String(selectedAccount._id),
+    const journalTrades = trades.filter(
+      (trade) => String(trade.journalId) === String(journal._id),
     );
     const dayPnl = journalTrades.reduce(
-      (total, trade) => total + Number(trade.profitLoss || 0),
+      (total, trade) =>
+        total + (isClosedTrade(trade) && Number.isFinite(trade.moneyValue) ? trade.moneyValue : 0),
       0,
     );
     running += dayPnl;
@@ -246,24 +373,35 @@ async function getAnalyticsService(userId, tradingAccountId) {
   const worstSession =
     Object.values(bySession).sort((a, b) => a.pnl - b.pnl)[0] || null;
   const activeCurrencies = Array.from(
-    new Set(scopedAccounts.map((account) => account.currency || "USD")),
+    new Set(
+      scopedAccounts.map((account) => resolveAccountCurrency(account, "USD")),
+    ),
   );
-  const startingBalance = scopedAccounts.reduce(
-    (total, account) => total + Number(account.initialBalance || 0),
-    0,
-  );
+  const startingBalance = selectedAccount
+    ? Number(selectedAccount.initialBalance || 0)
+    : 0;
 
   return {
     success: true,
     data: {
-      currency: selectedAccount?.currency || activeCurrencies[0] || "USD",
-      currencyMode: activeCurrencies.length > 1 ? "mixed" : "single",
+      currency: displayCurrency,
+      reportingCurrency,
+      currencyMode: selectedAccount
+        ? "single"
+        : activeCurrencies.length > 1
+          ? "normalized"
+          : "single",
+      nativeCurrencyMode: activeCurrencies.length > 1 ? "mixed" : "single",
+      conversionUnavailable: conversionUnavailableCount > 0,
+      conversionUnavailableCount,
+      monetaryTradesCount: monetaryTrades.length,
       tradingAccount: selectedAccount
         ? {
             _id: selectedAccount._id,
             accountName: selectedAccount.accountName,
             broker: selectedAccount.broker,
             currency: selectedAccount.currency,
+            accountCurrency: resolveAccountCurrency(selectedAccount, "USD"),
             status: selectedAccount.status || "Active",
             isActive: Boolean(selectedAccount.isActive),
           }
@@ -292,7 +430,7 @@ async function getAnalyticsService(userId, tradingAccountId) {
               session: bestSession.session,
               trades: bestSession.trades,
               pnl: round(bestSession.pnl),
-              winRate: percent(bestSession.wins, bestSession.trades),
+              winRate: percent(bestSession.wins, bestSession.closedTrades),
             }
           : null,
         worstSession: worstSession
@@ -300,7 +438,7 @@ async function getAnalyticsService(userId, tradingAccountId) {
               session: worstSession.session,
               trades: worstSession.trades,
               pnl: round(worstSession.pnl),
-              winRate: percent(worstSession.wins, worstSession.trades),
+              winRate: percent(worstSession.wins, worstSession.closedTrades),
             }
           : null,
       },
@@ -311,12 +449,12 @@ async function getAnalyticsService(userId, tradingAccountId) {
         .map((item) => ({
           ...item,
           pnl: round(item.pnl),
-          winRate: percent(item.wins, item.trades),
+          winRate: percent(item.wins, item.closedTrades),
         })),
       bySession: Object.values(bySession).map((item) => ({
         ...item,
         pnl: round(item.pnl),
-        winRate: percent(item.wins, item.trades),
+        winRate: percent(item.wins, item.closedTrades),
       })),
       byDirection: {
         long: {
@@ -342,6 +480,7 @@ async function getAnalyticsService(userId, tradingAccountId) {
         accountName: account.accountName,
         broker: account.broker,
         currency: account.currency,
+        accountCurrency: resolveAccountCurrency(account, "USD"),
         currentBalance: account.currentBalance,
         currentEquity: account.currentEquity,
         profitTarget: account.profitTarget,

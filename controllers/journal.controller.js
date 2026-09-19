@@ -8,6 +8,24 @@ import {
   getUserJournalsService,
 } from "../services/journal.service.js";
 import { getTodayBounds, getUserTimeZone } from "../utils/timezone.js";
+import { resolveReportingCurrency } from "../services/currency/currency.utils.js";
+
+async function exportJournalsController(req, res, next) {
+  try {
+    const result = await getUserJournalsService(req.user.id, { includeExportFields: true });
+    if (!result.success) throw new Error("Unable to load journal export.");
+    res.set("Cache-Control", "no-store");
+    return res.json({
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      timeZone: getUserTimeZone(req.user),
+      reportingCurrency: resolveReportingCurrency(req.user),
+      journals: result.data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
 
 async function getTodayJournalStatusController(req, res, next) {
   try {
@@ -222,6 +240,7 @@ async function completeJournalController(req, res, next) {
 }
 
 export {
+  exportJournalsController,
   closeJournalTradeController,
   completeJournalController,
   createJournalController,

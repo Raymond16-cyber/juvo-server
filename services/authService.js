@@ -388,7 +388,11 @@ async function updatePreferencesService(userId, payload = {}) {
   if (theme && ["light", "dark", "system"].includes(theme)) {
     updates["preferences.theme"] = theme;
   }
-  if (preferredCurrency) updates["preferences.preferredCurrency"] = preferredCurrency;
+  if (preferredCurrency) {
+    const currency = preferredCurrency.toUpperCase();
+    updates["preferences.preferredCurrency"] = currency;
+    updates["preferences.reportingCurrency"] = currency;
+  }
   if (weekStartsOn && ["sunday", "monday"].includes(weekStartsOn)) {
     updates["preferences.weekStartsOn"] = weekStartsOn;
   }

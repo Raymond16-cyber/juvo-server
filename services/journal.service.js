@@ -4,6 +4,12 @@ import Trade from "../models/Trades.js";
 import TradingAccount from "../models/tradingAccounts.js";
 import User from "../models/User.js";
 import { analyzeJournalWithAi } from "./ai.service.js";
+import { currencyService } from "./currency/currency.service.js";
+import {
+  resolveAccountCurrency,
+  resolveReportingCurrency,
+  resolveTradeCurrency,
+} from "./currency/currency.utils.js";
 import { userCanUseJuvoAi } from "./entitlement.service.js";
 import {
   applyClosedTradeToAccount,
@@ -22,19 +28,19 @@ const JOURNAL_LIST_SELECT =
   "_id journalDate status tradingAccount trades psychology review discipline ai createdAt updatedAt";
 
 const TRADE_LIST_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source externalId externalPositionId externalOrderId";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source externalId externalPositionId externalOrderId";
 
 const ACCOUNT_LIST_SELECT =
-  "accountName accountNumber broker accountType currency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
+  "accountName accountNumber broker accountType currency accountCurrency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function populateTrades(query) {
+function populateTrades(query, includeExportFields = false) {
   return query.populate({
     path: "trades",
-    select: TRADE_LIST_SELECT,
+    select: includeExportFields ? `${TRADE_LIST_SELECT} pips screenshots` : TRADE_LIST_SELECT,
     populate: {
       path: "tradingAccount",
-      select: "accountName broker currency status isActive",
+      select: "accountName broker currency accountCurrency status isActive",
     },
   });
 }
@@ -50,9 +56,7 @@ async function resolveInPlayTradingAccount(userId, preferredAccountId) {
       userId,
       isArchived: false,
     });
-    if (preferred && isTradingAccountInPlay(preferred)) {
-      return preferred;
-    }
+    return preferred;
   }
 
   const activeAccount = await TradingAccount.findOne({
@@ -81,7 +85,7 @@ function summarizeTrades(trades = []) {
     tradesCount: trades.length,
     totalProfitLoss,
     openTrades: trades.filter((trade) => trade.status === "Open").length,
-    closedTrades: trades.filter((trade) => trade.status === "Closed").length,
+    closedTrades: trades.filter((trade) => ["Closed", "Breakeven"].includes(trade.status)).length,
     winningTrades: trades.filter((trade) => Number(trade.profitLoss || 0) > 0)
       .length,
     losingTrades: trades.filter((trade) => Number(trade.profitLoss || 0) < 0)
@@ -94,6 +98,54 @@ function withJournalStats(journal) {
   return {
     ...journal,
     ...summarizeTrades(trades),
+  };
+}
+
+async function summarizeTradesForReporting(journal, user) {
+  const trades = journal.trades || [];
+  const reportingCurrency = resolveReportingCurrency(user);
+  let totalProfitLossReporting = 0;
+  let conversionUnavailableCount = 0;
+
+  await Promise.all(
+    trades.map(async (trade) => {
+      const account =
+        trade.tradingAccount && typeof trade.tradingAccount !== "string"
+          ? trade.tradingAccount
+          : journal.tradingAccount;
+      const nativeCurrency = resolveTradeCurrency(
+        trade,
+        account,
+        resolveAccountCurrency(journal.tradingAccount, reportingCurrency),
+      );
+      const amount = Number(trade.profitLoss || 0);
+
+      trade.profitLossReporting = null;
+      if (amount === 0) {
+        trade.profitLossReporting = 0;
+        return;
+      }
+
+      try {
+        const converted = await currencyService.convertClosedTrade({
+          amount,
+          from: nativeCurrency,
+          to: reportingCurrency,
+          closedAt: trade.closedAt || journal.journalDate,
+        });
+        totalProfitLossReporting += converted.amount;
+        trade.profitLossReporting = converted.amount;
+      } catch {
+        conversionUnavailableCount += 1;
+      }
+    }),
+  );
+
+  return {
+    ...withJournalStats(journal),
+    reportingCurrency,
+    totalProfitLossReporting: Number(totalProfitLossReporting.toFixed(2)),
+    conversionUnavailableCount,
   };
 }
 
@@ -130,49 +182,45 @@ async function populateJournal(journalId) {
 }
 
 async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
-  try {
-    const journal = await populateTrades(
+  const [user, journal] = await Promise.all([
+    User.findById(userId).select("preferences reportingCurrency").lean(),
+    populateTrades(
       Journal.findOne({
         user: userId,
         journalDate: { $gte: startOfDay, $lte: endOfDay },
       })
         .select("_id journalDate status tradingAccount trades psychology createdAt updatedAt")
         .populate("tradingAccount", ACCOUNT_LIST_SELECT),
-    ).lean();
+    ).lean(),
+  ]);
 
-    return {
-      success: true,
-      data: {
-        hasJournalToday: Boolean(journal),
-        journal: journal
-          ? {
-              ...journal,
-              tradesCount: journal.trades?.length || 0,
-            }
-          : null,
-      },
-    };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+  return {
+    success: true,
+    data: {
+      hasJournalToday: Boolean(journal),
+      journal: journal ? await summarizeTradesForReporting(journal, user) : null,
+    },
+  };
 }
 
-async function getUserJournalsService(userId) {
-  try {
-    const journals = await populateTrades(
+async function getUserJournalsService(userId, { includeExportFields = false } = {}) {
+  const [user, journals] = await Promise.all([
+    User.findById(userId).select("preferences reportingCurrency").lean(),
+    populateTrades(
       Journal.find({ user: userId })
-        .select(JOURNAL_LIST_SELECT)
+        .select(includeExportFields ? `${JOURNAL_LIST_SELECT} tradingPlan tradingStrategy` : JOURNAL_LIST_SELECT)
         .populate("tradingAccount", ACCOUNT_LIST_SELECT)
         .sort({ journalDate: -1, createdAt: -1 }),
-    ).lean();
+      includeExportFields,
+    ).lean(),
+  ]);
 
-    return {
-      success: true,
-      data: journals.map(withJournalStats),
-    };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+  return {
+    success: true,
+    data: await Promise.all(
+      journals.map((journal) => summarizeTradesForReporting(journal, user)),
+    ),
+  };
 }
 
 async function getJournalByIdService(journalId, userId) {
@@ -181,8 +229,11 @@ async function getJournalByIdService(journalId, userId) {
     return { success: false, statusCode: 404, message: "Journal not found." };
   }
 
-  const populated = await populateJournal(journalId);
-  return { success: true, data: withJournalStats(populated) };
+  const [user, populated] = await Promise.all([
+    User.findById(userId).select("preferences reportingCurrency").lean(),
+    populateJournal(journalId),
+  ]);
+  return { success: true, data: await summarizeTradesForReporting(populated, user) };
 }
 
 async function createJournalService(data, userId, journalDate) {
@@ -264,7 +315,7 @@ async function createJournalService(data, userId, journalDate) {
       };
     }
 
-    return { success: false, statusCode: 500, message: err.message };
+    throw err;
   }
 }
 
@@ -287,7 +338,7 @@ async function createJournalTradeService(journalId, data, userId) {
 
   const tradingAccount = await resolveInPlayTradingAccount(
     userId,
-    data.tradingAccount || journal.tradingAccount,
+    result.data.tradingAccount || journal.tradingAccount,
   );
 
   if (!tradingAccount) {
@@ -317,6 +368,7 @@ async function createJournalTradeService(journalId, data, userId) {
     user: userId,
     journal: journal._id,
     tradingAccount: tradingAccount._id,
+    profitLossCurrency: tradingAccount.accountCurrency || tradingAccount.currency,
   });
 
   journal.trades.push(trade._id);
@@ -386,10 +438,17 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
     };
   }
 
+  if (trade.source === "ctrader") {
+    return { success: false, statusCode: 409, message: "Broker trades are updated through cTrader sync." };
+  }
+  if (trade.openedAt && result.data.closedAt < new Date(trade.openedAt)) {
+    return { success: false, statusCode: 400, message: "Closed date cannot be before the trade opened." };
+  }
+
   const account = await TradingAccount.findOne({
     _id: trade.tradingAccount || journal.tradingAccount,
     userId,
-  }).select("currentBalance");
+  }).select("currentBalance currency accountCurrency");
   const estimated = estimateProfitLoss(trade, result.data.exitPrice, account);
   const profitLoss =
     result.data.profitLoss !== undefined
@@ -410,12 +469,28 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
   trade.status = result.data.status;
   trade.closedAt = result.data.closedAt;
   trade.profitLoss = profitLoss;
+  trade.profitLossCurrency =
+    trade.profitLossCurrency || account?.accountCurrency || account?.currency;
   trade.achievedRR = achievedRR;
   if (result.data.pips !== undefined) trade.pips = result.data.pips;
   if (result.data.notes) {
     trade.notes = [trade.notes, result.data.notes].filter(Boolean).join("\n");
   }
-  await trade.save();
+  // Claim the open trade atomically so a repeated request cannot apply P/L twice.
+  const closedTrade = await Trade.findOneAndUpdate(
+    { _id: tradeId, journal: journalId, user: userId, status: "Open" },
+    { $set: {
+      exitPrice: trade.exitPrice, status: trade.status, closedAt: trade.closedAt,
+      profitLoss: trade.profitLoss, profitLossCurrency: trade.profitLossCurrency,
+      achievedRR: trade.achievedRR,
+      ...(trade.pips !== undefined ? { pips: trade.pips } : {}),
+      ...(trade.notes ? { notes: trade.notes } : {}),
+    } },
+    { new: true, runValidators: true },
+  );
+  if (!closedTrade) {
+    return { success: false, statusCode: 409, message: "This trade is already closed." };
+  }
 
   const tradingAccount = await applyClosedTradeToAccount({
     accountId: trade.tradingAccount || journal.tradingAccount,
@@ -425,7 +500,7 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
 
   return {
     success: true,
-    data: trade,
+    data: closedTrade,
     tradingAccount,
   };
 }
@@ -454,6 +529,10 @@ async function completeJournalService(journalId, data, userId) {
     ...(journal.discipline?.toObject?.() || journal.discipline || {}),
     ...result.data.discipline,
   };
+  const mergedDiscipline = validateCompleteJournalInput(
+    journal.discipline?.toObject?.() || journal.discipline || {},
+  ).data.discipline;
+  if (mergedDiscipline.score !== undefined) journal.discipline.score = mergedDiscipline.score;
   journal.status = "Completed";
   await journal.save();
 

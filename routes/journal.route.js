@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  exportJournalsController,
   closeJournalTradeController,
   completeJournalController,
   createJournalController,
@@ -11,6 +12,8 @@ import {
 import { requireAuth } from "../middleware/authMiddleware.js";
 
 const journalRoutes = Router();
+
+journalRoutes.get("/export", requireAuth, exportJournalsController);
 
 journalRoutes.post("/create-journal", requireAuth, createJournalController);
 journalRoutes.post(

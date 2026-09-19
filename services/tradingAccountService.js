@@ -4,7 +4,7 @@ import { findUserById } from "../repositories/userRepository.js";
 import { validateTradingAccountInput } from "../validations/tradingAccountValidation.js";
 
 const ACCOUNT_TRADE_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss plannedRR achievedRR session notes openedAt closedAt createdAt source externalId externalPositionId externalOrderId";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt source externalId externalPositionId externalOrderId";
 
 function round(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
@@ -20,7 +20,7 @@ function summarizeTrades(trades = []) {
     tradesCount: trades.length,
     totalProfitLoss: round(totalProfitLoss),
     openTrades: trades.filter((trade) => trade.status === "Open").length,
-    closedTrades: trades.filter((trade) => trade.status === "Closed").length,
+    closedTrades: trades.filter((trade) => ["Closed", "Breakeven"].includes(trade.status)).length,
     winningTrades: trades.filter((trade) => Number(trade.profitLoss || 0) > 0)
       .length,
     losingTrades: trades.filter((trade) => Number(trade.profitLoss || 0) < 0)
@@ -65,6 +65,7 @@ function withAccountStats(account) {
   const evaluation = evaluateTradingAccountStatus(account);
   return {
     ...account,
+    accountCurrency: account.accountCurrency || account.currency,
     status: getAccountStatus(account),
     isActive: Boolean(account.isActive),
     ...summarizeTrades(account.trades || []),
@@ -297,18 +298,15 @@ async function attachTradeToActiveAccount(account, tradeId) {
 }
 
 async function applyClosedTradeToAccount({ accountId, userId, profitLoss }) {
-  const account = await TradingAccount.findOne({ _id: accountId, userId });
+  const amount = round(profitLoss);
+  const account = await TradingAccount.findOneAndUpdate(
+    { _id: accountId, userId },
+    { $inc: { currentBalance: amount, currentEquity: amount } },
+    { new: true },
+  );
   if (!account) return null;
 
   const previousStatus = getAccountStatus(account);
-  const nextBalance =
-    Number(account.currentBalance || 0) + Number(profitLoss || 0);
-  const nextEquity =
-    Number(account.currentEquity || 0) + Number(profitLoss || 0);
-
-  account.currentBalance = round(nextBalance);
-  account.currentEquity = round(nextEquity);
-
   const evaluation = evaluateTradingAccountStatus(account);
   const statusChanged = evaluation.status !== previousStatus;
 
@@ -344,6 +342,7 @@ async function applyClosedTradeToAccount({ accountId, userId, profitLoss }) {
     accountName: account.accountName,
     broker: account.broker,
     currency: account.currency,
+    accountCurrency: account.accountCurrency || account.currency,
     currentBalance: account.currentBalance,
     currentEquity: account.currentEquity,
     initialBalance: account.initialBalance,

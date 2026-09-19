@@ -33,6 +33,7 @@ function buildOnboardingUpdates(data) {
   if (data.theme !== undefined) updates.$set["preferences.theme"] = data.theme;
   if (data.preferredCurrency !== undefined) {
     updates.$set["preferences.preferredCurrency"] = data.preferredCurrency;
+    updates.$set["preferences.reportingCurrency"] = data.preferredCurrency;
   }
   if (data.weekStartsOn !== undefined) {
     updates.$set["preferences.weekStartsOn"] = data.weekStartsOn;

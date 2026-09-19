@@ -4,7 +4,7 @@ import { validateGoalInput } from "../validations/goal.validation.js";
 
 async function listGoalsService(userId) {
   const goals = await Goal.find({ user: userId })
-    .populate("tradingAccount", "accountName broker currency")
+    .populate("tradingAccount", "accountName broker currency accountCurrency")
     .sort({ status: 1, createdAt: -1 })
     .lean();
 
@@ -50,7 +50,7 @@ async function updateGoalService(goalId, data, userId) {
     { _id: goalId, user: userId },
     { $set: result.data },
     { new: true },
-  ).populate("tradingAccount", "accountName broker currency");
+  ).populate("tradingAccount", "accountName broker currency accountCurrency");
 
   if (!goal) {
     return { success: false, statusCode: 404, message: "Goal not found." };

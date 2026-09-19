@@ -11,7 +11,12 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const decoded = verifyToken(token);
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
     const user = await findUserById(decoded.sub);
 
     if (!user) {
@@ -21,7 +26,7 @@ async function requireAuth(req, res, next) {
     req.user = user;
     return next();
   } catch (error) {
-    return res.status(401).json({ message: "Unauthorized." });
+    return next(error);
   }
 }
 
