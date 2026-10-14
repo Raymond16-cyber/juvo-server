@@ -70,4 +70,13 @@ describe("entitlement service", () => {
     assert.equal(access.hasAccess, true);
     assert.equal(access.source, "subscription");
   });
+
+  it("keeps paid access during a non-renewing paid period and removes it after expiry", () => {
+    const current = {
+      subscription: { plan: "pro", status: "non-renewing", expiresAt: "2026-09-08T12:00:00.000Z" },
+      entitlements: {},
+    };
+    assert.equal(getFeatureAccess(current, ENTITLEMENTS.JUVO_AI, now).hasAccess, true);
+    assert.equal(getFeatureAccess({ ...current, subscription: { ...current.subscription, expiresAt: "2026-09-06T12:00:00.000Z" } }, ENTITLEMENTS.JUVO_AI, now).hasAccess, false);
+  });
 });

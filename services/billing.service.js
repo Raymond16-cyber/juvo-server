@@ -54,6 +54,12 @@ function subscriptionStatus(providerStatus, { cancelAtPeriodEnd = false } = {}) 
   if (providerStatus === "completed" || providerStatus === "complete" || providerStatus === "cancelled") return "expired";
   return "pending";
 }
+function statusFromVerifiedCharge(transaction) {
+  // A transaction's `success` is not a subscription status. Paystack only
+  // includes a subscription object after it has been created asynchronously.
+  const providerStatus = transaction?.subscription?.status;
+  return providerStatus ? subscriptionStatus(providerStatus) : "active";
+}
 function paidAccess(subscription, now = new Date()) {
   if (!subscription || !ACCESSIBLE_STATUSES.has(subscription.status)) return false;
   return !subscription.currentPeriodEnd || new Date(subscription.currentPeriodEnd) > now;
@@ -79,6 +85,23 @@ async function syncUserSubscription(subscription, now = new Date()) {
     : { plan: "free", status: "expired", expiresAt: subscription.currentPeriodEnd || now };
   await User.updateOne({ _id: subscription.userId }, { $set: { subscription: value } });
   return value;
+}
+
+async function repairSuccessfulPaymentSubscription(payment, now = new Date()) {
+  if (payment?.status !== "success" || !payment.fulfilledAt) return null;
+  const subscription = await Subscription.findById(payment.subscriptionId);
+  if (!subscription || subscription.status !== "pending") return subscription;
+
+  const start = subscription.currentPeriodStart || payment.paidAt || payment.fulfilledAt;
+  const end = subscription.currentPeriodEnd || addInterval(start, subscription.billingInterval);
+  const status = end > now ? "active" : "expired";
+  await Subscription.updateOne({ _id: subscription._id, status: "pending" }, { $set: {
+    status, currentPeriodStart: start, currentPeriodEnd: end,
+    lastError: null, lastReconciledAt: now,
+  } });
+  const repaired = await Subscription.findById(subscription._id);
+  await syncUserSubscription(repaired, now);
+  return repaired;
 }
 
 async function findBlockingSubscription(id) {
@@ -134,19 +157,33 @@ async function fulfillVerifiedPayment(paymentId, transaction, expectedUserId) {
   const payment = await Payment.findById(paymentId).select("+expectedPlanCode +customerEmail");
   if (!payment) throw billingError("Payment not found.", 404, "PAYMENT_NOT_FOUND");
   const transactionId = verifyExpectedTransaction(payment, transaction, expectedUserId);
-  if (payment.status === "success" && payment.fulfilledAt) return { payment, alreadyFulfilled: true };
-  const claimed = await Payment.findOneAndUpdate({ _id: payment._id, status: { $in: ["pending", "failed"] }, fulfilledAt: null }, { $set: { status: "processing", paystackTransactionId: transactionId, verifiedAt: new Date() } }, { new: true }).select("+expectedPlanCode +customerEmail");
-  if (!claimed) return { payment: await Payment.findById(payment._id), alreadyFulfilled: true };
+  if (payment.status === "success" && payment.fulfilledAt) {
+    return { payment, subscription: await repairSuccessfulPaymentSubscription(payment), alreadyFulfilled: true };
+  }
+  const processingStartedBefore = new Date(Date.now() - 5 * 60 * 1000);
+  const claimed = await Payment.findOneAndUpdate({
+    _id: payment._id,
+    fulfilledAt: null,
+    $or: [
+      { status: { $in: ["pending", "failed"] } },
+      { status: "processing", $or: [{ processingAt: { $lt: processingStartedBefore } }, { processingAt: { $exists: false } }] },
+    ],
+  }, { $set: { status: "processing", processingAt: new Date(), paystackTransactionId: transactionId, verifiedAt: new Date() } }, { new: true }).select("+expectedPlanCode +customerEmail");
+  if (!claimed) {
+    const latest = await Payment.findById(payment._id);
+    if (latest?.status === "success" && latest.fulfilledAt) return { payment: latest, alreadyFulfilled: true };
+    return { payment: latest, processing: true, alreadyFulfilled: false };
+  }
   try {
     const subscription = await Subscription.findById(claimed.subscriptionId).select("+paystackPlanCode +paystackSubscriptionCode +paystackEmailToken +customerEmail");
     if (!subscription || String(subscription.userId) !== String(claimed.userId) || subscription.paystackPlanCode !== claimed.expectedPlanCode) throw billingError("Subscription does not match this payment.", 409, "SUBSCRIPTION_MISMATCH");
     const start = asDate(transaction.paid_at) || new Date();
-    const embeddedSubscription = providerSubscription(transaction);
+    const embeddedSubscription = transaction.subscription;
     const providerCode = providerSubscriptionCode(transaction);
     const customer = providerCustomer(transaction);
     const end = periodEnd(transaction, start, subscription.billingInterval);
     await Subscription.updateOne({ _id: subscription._id }, { $set: {
-      status: subscriptionStatus(embeddedSubscription?.status || "active"),
+      status: statusFromVerifiedCharge(transaction),
       paystackCustomerCode: customer.customer_code,
       ...(providerCode ? { paystackSubscriptionCode: providerCode } : {}),
       ...(embeddedSubscription?.email_token ? { paystackEmailToken: embeddedSubscription.email_token } : {}),
@@ -154,11 +191,11 @@ async function fulfillVerifiedPayment(paymentId, transaction, expectedUserId) {
       cancelAtPeriodEnd: false, lastError: null, lastReconciledAt: new Date(),
     } });
     const activeSubscription = await Subscription.findById(subscription._id);
-    await Payment.updateOne({ _id: claimed._id }, { $set: { status: "success", paidAt: start, verifiedAt: new Date(), fulfilledAt: new Date(), paystackTransactionId: transactionId, failureReason: null } });
+    await Payment.updateOne({ _id: claimed._id }, { $set: { status: "success", paidAt: start, processingAt: null, verifiedAt: new Date(), fulfilledAt: new Date(), paystackTransactionId: transactionId, failureReason: null } });
     await syncUserSubscription(activeSubscription);
     return { payment: await Payment.findById(claimed._id), subscription: activeSubscription, alreadyFulfilled: false };
   } catch (error) {
-    await Payment.updateOne({ _id: claimed._id, status: "processing" }, { $set: { status: "failed", failureReason: error.safeBilling ? error.message : "Payment processing failed" } });
+    await Payment.updateOne({ _id: claimed._id, status: "processing" }, { $set: { status: "failed", processingAt: null, failureReason: error.safeBilling ? error.message : "Payment processing failed" } });
     throw error;
   }
 }
@@ -175,7 +212,7 @@ async function verifyCheckout({ user, reference }) {
     return { status, payment: await Payment.findById(payment._id) };
   }
   const result = await fulfillVerifiedPayment(payment._id, transaction, id);
-  return { status: "success", payment: result.payment, subscription: result.subscription, alreadyFulfilled: result.alreadyFulfilled };
+  return { status: result.processing ? "processing" : "success", payment: result.payment, subscription: result.subscription, alreadyFulfilled: result.alreadyFulfilled };
 }
 
 async function applyProviderSubscription(data, { event } = {}) {
@@ -188,14 +225,19 @@ async function applyProviderSubscription(data, { event } = {}) {
   }
   if (!subscription) return null;
   const start = asDate(data?.period_start) || asDate(data?.paid_at) || subscription.currentPeriodStart || new Date();
-  const currentStatus = event === "subscription.not_renew" ? "non-renewing" : subscriptionStatus(providerSubscription(data)?.status || data?.status, { cancelAtPeriodEnd: event === "subscription.not_renew" });
+  const end = periodEnd(data, start, subscription.billingInterval);
+  const keepsPaidAccess = event === "subscription.disable" && end > new Date();
+  const providerStatus = data?.subscription?.status || (event === "renewal" && data?.status === "success" ? "active" : data?.status);
+  const currentStatus = event === "subscription.not_renew" || keepsPaidAccess
+    ? "non-renewing"
+    : subscriptionStatus(providerStatus, { cancelAtPeriodEnd: event === "subscription.not_renew" });
   await Subscription.updateOne({ _id: subscription._id }, { $set: {
     status: currentStatus, ...(code ? { paystackSubscriptionCode: code } : {}),
     ...(customer?.customer_code ? { paystackCustomerCode: customer.customer_code } : {}),
     ...(providerSubscription(data)?.email_token ? { paystackEmailToken: providerSubscription(data).email_token } : {}),
     authorization: safeAuthorization(data.authorization || providerSubscription(data)?.authorization),
-    currentPeriodStart: start, currentPeriodEnd: periodEnd(data, start, subscription.billingInterval),
-    cancelAtPeriodEnd: event === "subscription.not_renew" || currentStatus === "non-renewing",
+    currentPeriodStart: start, currentPeriodEnd: end,
+    cancelAtPeriodEnd: event === "subscription.not_renew" || event === "subscription.disable" || currentStatus === "non-renewing",
     ...(event === "subscription.not_renew" ? { cancelledAt: new Date() } : {}), lastReconciledAt: new Date(),
   } });
   const updated = await Subscription.findById(subscription._id);
@@ -203,14 +245,47 @@ async function applyProviderSubscription(data, { event } = {}) {
   return updated;
 }
 
+async function recordRenewalPayment(transaction) {
+  const subscriptionCode = providerSubscriptionCode(transaction);
+  const reference = transaction?.reference;
+  if (!subscriptionCode || !reference || transaction.status !== "success") return null;
+  const subscription = await Subscription.findOne({ provider: "paystack", paystackSubscriptionCode: subscriptionCode }).select("+paystackPlanCode +customerEmail");
+  if (!subscription) return null;
+  if (Number(transaction.amount) !== subscription.amount || normalizeCurrency(transaction.currency) !== subscription.currency || normalizeEmail(transaction.customer?.email) !== normalizeEmail(subscription.customerEmail)) {
+    throw billingError("Renewal payment did not match its JUVO subscription.", 409, "RENEWAL_MISMATCH");
+  }
+  const transactionId = String(transaction.id || "");
+  if (!transactionId) throw billingError("Paystack did not provide a transaction identifier.", 502, "PAYSTACK_RESPONSE");
+  const existing = await Payment.findOne({ provider: "paystack", reference });
+  if (!existing) {
+    try {
+      await Payment.create({
+        userId: subscription.userId, subscriptionId: subscription._id, reference,
+        plan: subscription.plan, billingInterval: subscription.billingInterval,
+        expectedPlanCode: subscription.paystackPlanCode, expectedAmount: subscription.amount,
+        currency: subscription.currency, customerEmail: subscription.customerEmail,
+        status: "success", paystackTransactionId: transactionId,
+        verifiedAt: new Date(), paidAt: asDate(transaction.paid_at) || new Date(), fulfilledAt: new Date(),
+      });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+    }
+  }
+  return applyProviderSubscription(transaction, { event: "renewal" });
+}
+
 async function processWebhookPayload(event, data) {
   if (event === "charge.success") {
     const reference = data?.reference;
+    if (!reference) return { ignored: true };
     const payment = reference ? await Payment.findOne({ provider: "paystack", reference }).select("+expectedPlanCode +customerEmail") : null;
-    if (!payment) return { ignored: true };
     const verified = await paystackClient.verifyTransaction(reference);
-    await fulfillVerifiedPayment(payment._id, verified, payment.userId);
-    return { paymentId: String(payment._id) };
+    if (payment) {
+      await fulfillVerifiedPayment(payment._id, verified, payment.userId);
+      return { paymentId: String(payment._id) };
+    }
+    const subscription = await recordRenewalPayment(verified);
+    return subscription ? { subscriptionId: String(subscription._id) } : { ignored: true };
   }
   if (event === "subscription.create" || event === "subscription.not_renew") return { subscription: await applyProviderSubscription(data, { event }) };
   if (event === "subscription.disable") {
@@ -288,6 +363,8 @@ async function reconcileBilling({ user }) {
   }
   const pending = await Payment.find({ userId: id, provider: "paystack", status: "pending" }).sort({ createdAt: -1 }).limit(10);
   for (const payment of pending) await verifyCheckout({ user: id, reference: payment.reference });
+  const fulfilled = await Payment.find({ userId: id, provider: "paystack", status: "success", fulfilledAt: { $ne: null } }).sort({ updatedAt: -1 }).limit(30);
+  for (const payment of fulfilled) await repairSuccessfulPaymentSubscription(payment);
   return getBillingOverview({ user: id });
 }
 
@@ -316,6 +393,7 @@ function stopBillingWorker() { if (worker) clearInterval(worker); worker = null;
 export {
   BILLING_INTERVALS, BILLING_PLANS, billingError, cancelSubscription, fulfillVerifiedPayment,
   getBillingOverview, initializeCheckout, managementLink, processQueuedWebhookEvents,
-  paidAccess, processWebhookEvent, reconcileBilling, startBillingWorker, stopBillingWorker,
-  storeWebhookEvent, subscriptionStatus, verifyCheckout, verifyExpectedTransaction,
+  paidAccess, processWebhookEvent, reconcileBilling, recordRenewalPayment, repairSuccessfulPaymentSubscription,
+  startBillingWorker, stopBillingWorker, statusFromVerifiedCharge, storeWebhookEvent, subscriptionStatus,
+  verifyCheckout, verifyExpectedTransaction,
 };

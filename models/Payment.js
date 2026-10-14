@@ -13,6 +13,7 @@ const paymentSchema = new mongoose.Schema({
   customerEmail: { type: String, required: true, lowercase: true, trim: true, select: false },
   status: { type: String, enum: ["pending", "processing", "success", "failed", "abandoned", "reversed"], default: "pending", index: true },
   paystackTransactionId: { type: String, sparse: true, unique: true },
+  processingAt: Date,
   verifiedAt: Date,
   paidAt: Date,
   fulfilledAt: Date,
