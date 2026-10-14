@@ -94,6 +94,20 @@ test("checkout reads the configured Paystack plan and sends only server-derived 
   assert.equal(checkoutCalls[0].metadata.juvo.userId, "user-1");
 });
 
+test("a non-renewing plan can be replaced by a different plan", async (t) => {
+  withPaystackEnvironment(t);
+  t.mock.method(User, "findById", () => ({ select: async () => ({ _id: "user-1", email: "trader@example.com" }) }));
+  t.mock.method(Subscription, "find", () => ({ sort: async () => [{ plan: "pro", status: "non-renewing", currentPeriodEnd: new Date("2026-12-01T00:00:00.000Z") }] }));
+  t.mock.method(Subscription, "create", async () => ({ _id: "subscription-super" }));
+  t.mock.method(Payment, "create", async () => ({ _id: "payment-super" }));
+  t.mock.method(paystackClient, "getPlan", async () => ({ amount: 290000, currency: "NGN", interval: "monthly" }));
+  t.mock.method(paystackClient, "initializeTransaction", async (body) => ({ authorization_url: "https://checkout.paystack.test/authorize", reference: body.reference }));
+
+  const result = await initializeCheckout({ user: "user-1", plan: "super" });
+
+  assert.equal(result.plan, "super");
+});
+
 test("Paystack webhooks accept only a valid raw-body signature and acknowledge duplicate events", async (t) => {
   withPaystackEnvironment(t);
   t.mock.method(PaymentWebhookEvent, "create", async () => null);

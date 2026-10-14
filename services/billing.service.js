@@ -116,7 +116,10 @@ async function initializeCheckout({ user, plan, billingInterval = "monthly" }) {
   if (!currentUser?.email) throw billingError("A verified email is required before checkout.", 409, "EMAIL_REQUIRED");
   const existing = await findBlockingSubscription(id);
   if (existing) {
-    throw billingError(existing.plan === plan ? "This plan is already active." : "Your current plan remains active. Cancel renewal before choosing another plan.", 409, "ACTIVE_SUBSCRIPTION");
+    if (existing.plan === plan) throw billingError("This plan is already active.", 409, "ACTIVE_SUBSCRIPTION");
+    if (existing.status !== "non-renewing") {
+      throw billingError("Cancel renewal for your current plan before choosing another plan.", 409, "ACTIVE_SUBSCRIPTION");
+    }
   }
   const resolved = await resolvePlan(plan, billingInterval);
   const subscription = await Subscription.create({ userId: id, plan: resolved.plan, billingInterval: resolved.interval, status: "pending", currency: resolved.currency, amount: resolved.amount, customerEmail: currentUser.email, paystackPlanCode: resolved.code });
