@@ -64,7 +64,7 @@ const BrokerConnectionSchema = new Schema(
 
     provider: {
       type: String,
-      enum: ["ctrader", "metaapi"],
+      enum: ["ctrader", "metatrader"],
       required: true,
     },
 
@@ -108,6 +108,26 @@ const BrokerConnectionSchema = new Schema(
 
     tokenExpiresAt: Date,
 
+    tradingAccount: { type: Schema.Types.ObjectId, ref: "TradingAccount" },
+    server: { type: String, trim: true },
+    accountCurrency: String,
+    desiredConnected: { type: Boolean, default: false },
+    lastError: { code: String, message: String },
+    historySyncedAt: Date,
+    externalAccountKey: { type: String, select: false },
+    connectorTokenHash: { type: String, select: false },
+    pairingId: { type: Schema.Types.ObjectId, select: false },
+    pairedAt: Date,
+    revokedAt: Date,
+    lastHeartbeatAt: Date,
+    terminalConnected: Boolean,
+    connectorVersion: String,
+    protocolVersion: Number,
+    historyCursor: { type: Number, default: 0 },
+    syncRequestedAt: Date,
+    legacy: { type: Boolean, default: false },
+    legacyResourceId: { type: String, select: false },
+
     status: {
       type: String,
       enum: [
@@ -116,6 +136,7 @@ const BrokerConnectionSchema = new Schema(
         "disconnected",
         "error",
         "reauthorization_required",
+        "synchronizing", "stale", "offline",
       ],
       default: "connecting",
       index: true,
@@ -135,6 +156,15 @@ BrokerConnectionSchema.index({
   externalAccountId: 1,
 });
 
+BrokerConnectionSchema.index({ userId: 1, provider: 1, externalAccountKey: 1 }, {
+  unique: true, partialFilterExpression: { provider: "metatrader", externalAccountKey: { $type: "string" } },
+});
+BrokerConnectionSchema.index({ connectorTokenHash: 1 }, { unique: true, sparse: true });
+BrokerConnectionSchema.index({ userId: 1, provider: 1, tradingAccount: 1 }, {
+  name: "juvo_mt5_active_binding", unique: true,
+  partialFilterExpression: { provider: "metatrader", desiredConnected: true, tradingAccount: { $type: "objectId" } },
+});
+
 BrokerConnectionSchema.methods.getAccessToken = function getAccessToken() {
   return decryptToken(this.accessToken);
 };
@@ -150,6 +180,11 @@ BrokerConnectionSchema.set("toJSON", {
     delete ret.__v;
     delete ret.accessToken;
     delete ret.refreshToken;
+    for (const key of ["externalAccountKey", "connectorTokenHash", "pairingId", "legacyResourceId"]) delete ret[key];
+    if (ret.provider === "metatrader") {
+      delete ret.externalAccountId;
+      ret.accountNumber = ret.accountNumber ? `****${ret.accountNumber.slice(-4)}` : undefined;
+    }
     return ret;
   },
 });

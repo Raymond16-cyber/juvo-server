@@ -28,7 +28,7 @@ const JOURNAL_LIST_SELECT =
   "_id journalDate status tradingAccount trades psychology review discipline ai createdAt updatedAt";
 
 const TRADE_LIST_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source externalId externalPositionId externalOrderId";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source platform brokerMetadata commission swap externalId externalPositionId externalOrderId externalDealId";
 
 const ACCOUNT_LIST_SELECT =
   "accountName accountNumber broker accountType currency accountCurrency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
@@ -438,8 +438,8 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
     };
   }
 
-  if (trade.source === "ctrader") {
-    return { success: false, statusCode: 409, message: "Broker trades are updated through cTrader sync." };
+  if (["ctrader", "metatrader"].includes(trade.source)) {
+    return { success: false, statusCode: 409, message: "Broker trades are updated through broker sync." };
   }
   if (trade.openedAt && result.data.closedAt < new Date(trade.openedAt)) {
     return { success: false, statusCode: 400, message: "Closed date cannot be before the trade opened." };

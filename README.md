@@ -1,5 +1,9 @@
 # juvo-server
 
+## MT5 Connector
+
+JUVO now supports a first-party, read-only MT5 EA connector. See [installation and demo testing](connectors/mt5/README.md) and the [migration/delivery report](docs/mt5-connector-migration.md). cTrader continues to use its independent Open API integration.
+
 ## Verification
 
 Run `npm test`. Workflow tests mock persistence and external services; they do not connect to MongoDB or cTrader. Test a live manual trade close and broker reconnection separately in a development account.

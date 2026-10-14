@@ -56,6 +56,9 @@ const tradingAccountSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    margin: Number,
+    freeMargin: Number,
+    brokerConnection: { type: mongoose.Schema.Types.ObjectId, ref: "BrokerConnection" },
     maxDrawnDown: {    // Maximum Drawdown in percentage
         type: Number,
         required: true,

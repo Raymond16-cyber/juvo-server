@@ -24,7 +24,7 @@ const BrokerPositionSchema = new mongoose.Schema(
 
     provider: {
       type: String,
-      enum: ["ctrader"],
+      enum: ["ctrader", "metatrader"],
       required: true,
       default: "ctrader",
       index: true,
@@ -32,7 +32,7 @@ const BrokerPositionSchema = new mongoose.Schema(
 
     ctidTraderAccountId: {
       type: String,
-      required: true,
+      required() { return this.provider === "ctrader"; },
       index: true,
     },
 
@@ -50,6 +50,10 @@ const BrokerPositionSchema = new mongoose.Schema(
     },
 
     symbolId: String,
+    externalAccountId: String,
+    externalTicket: String,
+    platform: String,
+    brokerMetadata: { magic: String, comment: String, origin: String },
 
     direction: {
       type: String,

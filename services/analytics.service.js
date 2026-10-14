@@ -233,19 +233,10 @@ async function getAnalyticsService(userId, tradingAccountId) {
     0,
   );
   const profitFactor = grossLoss ? grossProfit / Math.abs(grossLoss) : 0;
-  const avgRr = closedTrades.length
-    ? closedTrades.reduce(
-        (total, trade) =>
-          total + Number(trade.achievedRR ?? trade.plannedRR ?? 0),
-        0,
-      ) / closedTrades.length
-    : 0;
-  const avgRisk = trades.length
-    ? trades.reduce(
-        (total, trade) => total + Number(trade.riskPercentage || 0),
-        0,
-      ) / trades.length
-    : 0;
+  const rrValues = closedTrades.map((trade) => trade.achievedRR ?? trade.plannedRR).filter((value) => typeof value === "number" && Number.isFinite(value));
+  const riskValues = trades.map((trade) => trade.riskPercentage).filter((value) => typeof value === "number" && Number.isFinite(value));
+  const avgRr = rrValues.length ? rrValues.reduce((total, value) => total + value, 0) / rrValues.length : 0;
+  const avgRisk = riskValues.length ? riskValues.reduce((total, value) => total + value, 0) / riskValues.length : 0;
 
   const bySymbol = {};
   const bySession = {};
@@ -420,6 +411,8 @@ async function getAnalyticsService(userId, tradingAccountId) {
         maxDrawdown: round(maxDrawdown),
         avgRr: round(avgRr),
         avgRisk: round(avgRisk),
+        rrSampleSize: rrValues.length,
+        riskSampleSize: riskValues.length,
         avgDiscipline: round(avgDiscipline, 1),
         wins: wins.length,
         losses: losses.length,

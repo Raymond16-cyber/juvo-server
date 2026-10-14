@@ -65,6 +65,8 @@ test("broker trades cannot be manually closed and closed dates cannot precede op
   t.mock.method(Journal, "findOne", async () => ({ _id: journalId }));
   const findTrade = t.mock.method(Trade, "findOne", async () => ({ ...trade, source: "ctrader" }));
   assert.equal((await closeJournalTradeService(journalId, tradeId, { exitPrice: 110 }, userId)).statusCode, 409);
+  findTrade.mock.mockImplementation(async () => ({ ...trade, source: "metatrader" }));
+  assert.equal((await closeJournalTradeService(journalId, tradeId, { exitPrice: 110 }, userId)).statusCode, 409);
   findTrade.mock.mockImplementation(async () => ({ ...trade }));
   assert.equal((await closeJournalTradeService(journalId, tradeId, { exitPrice: 110, closedAt: "2026-08-01" }, userId)).statusCode, 400);
 });
@@ -104,4 +106,17 @@ test("open and cancelled trades do not distort realized P/L or session win rates
   assert.equal(data.bySession[0].winRate, 100);
   assert.equal(data.bySymbol[0].winRate, 100);
   assert.equal(data.equityCurve[0].pnl, 100);
+});
+
+test("imported trades with unknown risk and RR do not dilute known analytics values", async (t) => {
+  t.mock.method(User, "findById", () => query({ preferences: { reportingCurrency: "USD" } }));
+  t.mock.method(TradingAccount, "find", () => query([account]));
+  t.mock.method(Journal, "find", () => query([{ _id: journalId, journalDate: new Date("2026-09-01"), tradingAccount: account, trades: [
+    { ...trade, status: "Closed", plannedRR: 2, riskPercentage: 1, profitLoss: 100, profitLossCurrency: "USD" },
+    { ...trade, source: "metatrader", status: "Closed", plannedRR: undefined, achievedRR: undefined, riskPercentage: undefined, profitLoss: 20, profitLossCurrency: "USD" },
+  ] }]));
+  t.mock.method(BehaviouralInsight, "find", () => query([]));
+  const { data } = await getAnalyticsService(userId);
+  assert.equal(data.summary.avgRr, 2); assert.equal(data.summary.avgRisk, 1);
+  assert.equal(data.summary.rrSampleSize, 1); assert.equal(data.summary.riskSampleSize, 1);
 });

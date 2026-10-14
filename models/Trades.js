@@ -53,12 +53,12 @@ const tradeSchema = new mongoose.Schema(
 
     stopLoss: {
       type: Number,
-      required: true,
+      required() { return this.source !== "metatrader"; },
     },
 
     takeProfit: {
       type: Number,
-      required: true,
+      required() { return this.source !== "metatrader"; },
     },
 
     lotSize: {
@@ -68,12 +68,12 @@ const tradeSchema = new mongoose.Schema(
 
     riskPercentage: {
       type: Number,
-      required: true,
+      required() { return this.source !== "metatrader"; },
     },
 
     plannedRR: {
       type: Number,
-      required: true,
+      required() { return this.source !== "metatrader"; },
     },
 
     achievedRR: Number,
@@ -130,7 +130,7 @@ const tradeSchema = new mongoose.Schema(
 
     source: {
       type: String,
-      enum: ["manual", "ctrader"],
+      enum: ["manual", "ctrader", "metatrader"],
       default: "manual",
       index: true,
     },
@@ -151,6 +151,14 @@ const tradeSchema = new mongoose.Schema(
       trim: true,
     },
 
+    brokerConnection: { type: mongoose.Schema.Types.ObjectId, ref: "BrokerConnection" },
+    platform: String,
+    externalDealId: String,
+    commission: Number,
+    swap: Number,
+    fee: Number,
+    brokerMetadata: { magic: String, comment: String, origin: String, partialClose: Boolean },
+
     rawSource: {
       type: mongoose.Schema.Types.Mixed,
       select: false,
@@ -158,6 +166,7 @@ const tradeSchema = new mongoose.Schema(
   },
   {
     _id: true,
+    autoIndex: false,
   },
 );
 
@@ -171,6 +180,11 @@ tradeSchema.index(
     },
   },
 );
+
+tradeSchema.index({ user: 1, source: 1, externalId: 1 }, {
+  name: "metatrader_trade_identity", unique: true,
+  partialFilterExpression: { source: "metatrader", externalId: { $type: "string" } },
+});
 
 const Trade = mongoose.model("Trade", tradeSchema);
 

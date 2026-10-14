@@ -1,7 +1,6 @@
 import "./loadEnv.js";
 import mongoose from "mongoose";
-
-
+import { ensureTradeIndexes } from "./tradeIndexes.js";
 
 const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/juvo";
 const isProduction = process.env.NODE_ENV === "production";
@@ -12,10 +11,7 @@ export default async function connectDb() {
   }
 
   mongoose.set("strictQuery", true);
-  await mongoose.connect(isProduction ? mongoUrl : mongoUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
+  await mongoose.connect(isProduction ? mongoUrl : mongoUri);
 
   try {
     const { default: Journal } = await import("../models/Journal.js");
@@ -25,12 +21,12 @@ export default async function connectDb() {
   }
 
   try {
-    const { default: TradingAccount } = await import(
-      "../models/tradingAccounts.js"
-    );
+    const { default: TradingAccount } =
+      await import("../models/tradingAccounts.js");
     await TradingAccount.collection.dropIndex("accountNumber_1");
   } catch {
     // Index already matches per-user account uniqueness.
   }
-}
 
+  await ensureTradeIndexes();
+}

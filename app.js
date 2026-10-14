@@ -10,8 +10,16 @@ import aiRoutes from "./routes/ai.route.js";
 import analyticsRoutes from "./routes/analytics.route.js";
 import goalRoutes from "./routes/goal.route.js";
 import brokerRoutes from "./routes/broker.route.js";
+import billingRoutes from "./routes/billing.route.js";
+import { paystackWebhookController } from "./controllers/billing.controller.js";
 
 const app = express();
+// Set only to the exact trusted proxy hops/subnets in deployments with TLS termination.
+if (process.env.TRUST_PROXY_HOPS) {
+  const hops = Number(process.env.TRUST_PROXY_HOPS);
+  if (!Number.isInteger(hops) || hops < 1 || hops > 5) throw new Error("TRUST_PROXY_HOPS must be an integer between 1 and 5.");
+  app.set("trust proxy", hops);
+}
 const configuredClientOrigin =
   process.env.NODE_ENV === "production"
     ? process.env.CLIENT_URL
@@ -43,6 +51,9 @@ app.use(
   }),
 );
 
+// Paystack signs the exact raw body, so this must be mounted before JSON parsing.
+app.post("/api/billing/webhook", express.raw({ type: "application/json", limit: "256kb" }), paystackWebhookController);
+app.use(["/api/broker/metatrader", "/api/brokers/metatrader"], express.json({ limit: "512kb", strict: true }));
 app.use(express.json());
 
 app.get("/health", (req, res) => {
@@ -56,6 +67,7 @@ app.use("/api/journal", journalRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/goals", goalRoutes);
+app.use("/api/billing", billingRoutes);
 // Broker Routes
 app.use("/api/broker", brokerRoutes);
 // Alias matches the cTrader app redirect URI: /api/brokers/ctrader/callback

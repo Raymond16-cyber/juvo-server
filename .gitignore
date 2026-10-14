@@ -4,3 +4,7 @@
 node_modules/
 
 .env
+
+# Local MetaEditor build outputs
+connectors/mt5/*.ex5
+connectors/mt5/*.log

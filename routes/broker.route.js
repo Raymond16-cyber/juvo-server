@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/authMiddleware.js";
+import metatraderRoutes from "../brokers/metatrader/metatrader.routes.js";
 import {
   callbackCTrader,
   completeCTrader,
@@ -11,6 +12,7 @@ import {
 } from "../controllers/broker.controller.js";
 
 const brokerRoutes = Router();
+brokerRoutes.use("/metatrader", metatraderRoutes);
 
 brokerRoutes.get("/ctrader/connect", requireAuth, connectCTrader);
 brokerRoutes.get("/ctrader/callback", callbackCTrader);

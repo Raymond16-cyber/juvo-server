@@ -78,15 +78,23 @@ function getAiTrial(user, now = new Date()) {
   };
 }
 
-function hasPlanEntitlement(user, entitlement) {
+function hasPlanEntitlement(user, entitlement, now = new Date()) {
   const plan = normalizePlan(user?.subscription?.plan);
-  return getPlanEntitlements(plan).includes(entitlement);
+  if (!getPlanEntitlements(plan).includes(entitlement)) return false;
+  if (plan === "free") return true;
+  const status = user?.subscription?.status;
+  // Records created before billing was introduced have no paid status. Treat
+  // those as active until a billing record explicitly supersedes them.
+  if (!status) return true;
+  if (!["active", "non-renewing", "past-due"].includes(status)) return false;
+  const expiresAt = user?.subscription?.expiresAt ? new Date(user.subscription.expiresAt) : null;
+  return !expiresAt || (Number.isFinite(expiresAt.getTime()) && expiresAt > now);
 }
 
 function getFeatureAccess(user, entitlement, now = new Date()) {
   const plan = normalizePlan(user?.subscription?.plan);
   const trial = getAiTrial(user, now);
-  const hasSubscriptionAccess = hasPlanEntitlement(user, entitlement);
+  const hasSubscriptionAccess = hasPlanEntitlement(user, entitlement, now);
   const hasTrialAccess =
     entitlement === ENTITLEMENTS.JUVO_AI && trial.status === "active";
 

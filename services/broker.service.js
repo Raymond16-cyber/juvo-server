@@ -12,6 +12,7 @@ import {
 } from "../utils/brokerDebug.js";
 import { getCTraderReadOnlySnapshot } from "../brokers/ctrader/ctrader.service.js";
 import { cTraderManager } from "../brokers/ctrader/ctrader.manager.js";
+import { metatraderRuntime } from "../brokers/metatrader/metatrader.runtime.js";
 import {
   buildSymbolLookup,
   mapCTraderDealToTrade,
@@ -665,7 +666,7 @@ async function listBrokerPositions(user, filters = {}) {
 
   brokerLog("positions:list:done", { count: positions.length });
   return positions.map((position) =>
-    cTraderManager.enrichPositionForClient(position),
+    position.provider === "metatrader" ? metatraderRuntime.enrichPositionForClient(position) : cTraderManager.enrichPositionForClient(position),
   );
 }
 
