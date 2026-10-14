@@ -4,10 +4,10 @@
 
 JUVO uses Paystack hosted checkout for Pro and Super. The browser only receives Paystack's hosted authorization URL; it never receives a Paystack secret key, access token, refresh token, or card data.
 
-1. Create the Pro and Super monthly plans in Paystack and copy their plan codes into `PAYSTACK_PRO_MONTHLY_PLAN_CODE` and `PAYSTACK_SUPER_MONTHLY_PLAN_CODE`.
-2. Set `PAYSTACK_SECRET_KEY`, `PAYSTACK_BILLING_CURRENCY`, and `PAYSTACK_CALLBACK_URL` from `.env.example`. The configured Paystack plan amount, interval, and currency are checked on the server before checkout.
+1. Create the Pro and Super monthly plans in each Paystack environment and copy their codes into the matching `PAYSTACK_TEST_*` or live `PAYSTACK_*` variables.
+2. Set `PAYSTACK_MODE` to `test` or `live`, the matching secret key, `PAYSTACK_BILLING_CURRENCY`, and `PAYSTACK_CALLBACK_URL` from `.env.example`. Restart the server after changing mode. The configured Paystack plan amount, interval, and currency are checked on the server before checkout.
 3. In the Paystack dashboard, set the webhook URL to `https://your-api-host/api/billing/webhook`. It validates Paystack's `x-paystack-signature` against the exact raw request body before queuing the event.
-4. Test checkout with a Paystack test key and test card first. A redirect alone does not grant access: JUVO verifies the transaction on the server and records the payment idempotently. The webhook reconciles delayed confirmation and renewals.
+4. Test checkout with a Paystack test key and test card first. A redirect alone does not grant access: JUVO verifies the transaction on the server and records the payment idempotently. The webhook reconciles delayed confirmation and renewals. Configure the webhook in the same Paystack environment as `PAYSTACK_MODE`; test and live signatures cannot be interchanged.
 
 Supported lifecycle events are `charge.success`, `subscription.create`, `subscription.not_renew`, `subscription.disable`, `invoice.create`, `invoice.update`, and `invoice.payment_failed`. Cancelling renewal keeps paid access through the recorded period end. Failed renewal payments are marked past due; JUVO does not invent a grace period.
 

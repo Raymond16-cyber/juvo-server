@@ -2,6 +2,10 @@ const PLAN_ENV = Object.freeze({
   pro: { monthly: "PAYSTACK_PRO_MONTHLY_PLAN_CODE" },
   super: { monthly: "PAYSTACK_SUPER_MONTHLY_PLAN_CODE" },
 });
+const TEST_PLAN_ENV = Object.freeze({
+  pro: { monthly: "PAYSTACK_TEST_PRO_MONTHLY_PLAN_CODE" },
+  super: { monthly: "PAYSTACK_TEST_SUPER_MONTHLY_PLAN_CODE" },
+});
 
 function configurationError(message) {
   return Object.assign(new Error(message), {
@@ -11,19 +15,33 @@ function configurationError(message) {
   });
 }
 
+function value(env, name) {
+  return typeof env[name] === "string" ? env[name].trim() : "";
+}
+
 function billingConfig(env = process.env) {
+  const requestedMode = value(env, "PAYSTACK_MODE").toLowerCase();
+  const inferredMode = value(env, "PAYSTACK_SECRET_KEY").startsWith("sk_test_")
+    ? "test"
+    : "live";
+  const mode = requestedMode || inferredMode;
+  if (mode !== "test" && mode !== "live") {
+    throw configurationError("PAYSTACK_MODE must be either test or live.");
+  }
   const secretKey =
-    env.NODE_ENV === "development"
-      ? env.PAYSTACK_TEST_SECRET_KEY
-      : env.PAYSTACK_SECRET_KEY?.trim();
-  const currency = env.PAYSTACK_BILLING_CURRENCY?.trim().toUpperCase();
+    value(
+      env,
+      mode === "test" ? "PAYSTACK_TEST_SECRET_KEY" : "PAYSTACK_LIVE_SECRET_KEY",
+    ) || value(env, "PAYSTACK_SECRET_KEY");
+  const currency = value(env, "PAYSTACK_BILLING_CURRENCY").toUpperCase();
+  const planEnvironment = mode === "test" ? TEST_PLAN_ENV : PLAN_ENV;
   const plans = Object.fromEntries(
-    Object.entries(PLAN_ENV).map(([plan, intervals]) => [
+    Object.entries(planEnvironment).map(([plan, intervals]) => [
       plan,
       Object.fromEntries(
         Object.entries(intervals).map(([interval, variable]) => [
           interval,
-          env[variable]?.trim() || "",
+          value(env, variable) || value(env, PLAN_ENV[plan][interval]),
         ]),
       ),
     ]),
@@ -33,13 +51,16 @@ function billingConfig(env = process.env) {
   );
   if (!configured) return { enabled: false, plans, currency: currency || null };
   if (
-    !/^sk_(test|live)_[A-Za-z0-9]+$/.test(secretKey) ||
+    !new RegExp(`^sk_${mode}_[A-Za-z0-9]+$`).test(secretKey) ||
     !/^[A-Z]{3}$/.test(currency)
   ) {
-    throw configurationError("Paystack billing configuration is invalid.");
+    throw configurationError(
+      "Paystack billing mode and secret key do not match.",
+    );
   }
   return {
     enabled: true,
+    mode,
     secretKey,
     currency,
     plans,

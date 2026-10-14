@@ -13,7 +13,7 @@ import {
   JUVO_JOURNAL_ANALYSIS_INSTRUCTIONS,
 } from "../prompts/aiPrompts.js";
 
-const MODEL = "gemini-3.1-flash-lite";
+const MODEL = "gemini-3.5-flash-lite";
 
 function readApiKey() {
   const raw = process.env.AI_API_KEY || "";
