@@ -148,7 +148,16 @@ const userSchema = new mongoose.Schema(
 
       status: {
         type: String,
-        enum: ["free", "pending", "trial", "active", "non-renewing", "past-due", "expired", "cancelled"],
+        enum: [
+          "free",
+          "pending",
+          "trial",
+          "active",
+          "non-renewing",
+          "past-due",
+          "expired",
+          "cancelled",
+        ],
         default: "free",
       },
 
@@ -221,6 +230,18 @@ const userSchema = new mongoose.Schema(
       emailVerified: {
         type: Boolean,
         default: false,
+      },
+
+      emailVerificationToken: {
+        type: String,
+        default: null,
+        select: false,
+      },
+
+      emailVerificationExpires: {
+        type: Date,
+        default: null,
+        select: false,
       },
 
       lastLogin: Date,

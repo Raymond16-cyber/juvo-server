@@ -13,6 +13,12 @@ Supported lifecycle events are `charge.success`, `subscription.create`, `subscri
 
 The independent three-day JUVO AI trial is unchanged. Paid entitlements are enforced on the server and expire with the paid subscription.
 
+## Waitlist invitations
+
+`POST /api/waitlist` accepts a normalized email and optional name without creating a JUVO account. It stores only a hash of a cryptographically generated invitation code, emails the raw code through the existing `EMAIL_USER` / `EMAIL_APP_PASSWORD` mailer, and expires the invitation 30 days after issuance. `POST /api/waitlist/retry` safely issues a replacement code when delivery fails.
+
+Authenticated, verified users can validate an invitation through `POST /api/billing/invitation/validate` and include the raw code in `POST /api/billing/checkout`. JUVO calculates a fixed 40% discount from the server-side Paystack plan amount, charges 60% for the first qualifying payment without attaching a plan code, then creates the normal-price Paystack subscription from the successful payment authorization. This is required because Paystack plan codes override the transaction amount. The invitation is reserved during checkout and redeemed only after trusted Paystack verification; failed or abandoned payments do not redeem it. No raw invitation code is returned by the API or written to logs.
+
 ## MT5 Connector
 
 JUVO now supports a first-party, read-only MT5 EA connector. See [installation and demo testing](connectors/mt5/README.md) and the [migration/delivery report](docs/mt5-connector-migration.md). cTrader continues to use its independent Open API integration.

@@ -17,9 +17,10 @@ import {
   validateAppleAuthInput,
   validateVerifyOtpVerificationCodeInput,
   validateRequestOtpInput,
-  validateResetPasswordInput
+  validateResetPasswordInput,
 } from "..//validations/authValidation.js";
 import { sendWelcomeNotification } from "../services/notificationService.js";
+import { randomUUID } from "node:crypto";
 
 function sanitizeUser(user) {
   const json = typeof user.toJSON === "function" ? user.toJSON() : user;
@@ -63,6 +64,10 @@ async function registerService(payload) {
     authProvider: "local",
     password: passwordHash,
     pushToken: result.data.pushToken || null,
+    security: {
+      emailVerificationToken: randomUUID(),
+      emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
     // providerId:payload.providerId
   });
 
@@ -77,11 +82,24 @@ async function registerService(payload) {
   return {
     user: sanitizeUser(createdUser),
     token,
+    emailVerificationToken: createdUser.security?.emailVerificationToken,
   };
 }
 
+async function issueEmailVerificationService(email) {
+  const user = await findUserByEmail(email);
+  if (!user || user.security?.emailVerified) return null;
+  const token = randomUUID();
+  await updateUser(user._id, {
+    "security.emailVerificationToken": token,
+    "security.emailVerificationExpires": new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    ),
+  });
+  return { email: user.email, token };
+}
+
 async function loginService(payload) {
-  
   const result = validateLoginInput(payload);
 
   if (!result.isValid) {
@@ -399,7 +417,8 @@ async function updatePreferencesService(userId, payload = {}) {
   if (typeof payload.notificationsEnabled === "boolean") {
     updates["preferences.notifications.enabled"] = payload.notificationsEnabled;
   }
-  if (reminderTime) updates["preferences.notifications.reminderTime"] = reminderTime;
+  if (reminderTime)
+    updates["preferences.notifications.reminderTime"] = reminderTime;
   if (fullName) updates.fullName = fullName;
   if (country) updates["profile.country"] = country;
   if (timezone) updates["profile.timezone"] = timezone;
@@ -459,5 +478,6 @@ export {
   verifyOtpVerificationCodeService,
   resetPasswordService,
   updatePreferencesService,
+  issueEmailVerificationService,
   sanitizeUser,
 };

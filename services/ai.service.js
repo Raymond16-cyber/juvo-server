@@ -1,5 +1,6 @@
 import "../config/loadEnv.js";
 import { GoogleGenAI } from "@google/genai";
+import mongoose from "mongoose";
 import Conversation from "../models/Conversation.js";
 import Journal from "../models/Journal.js";
 import "../models/Trades.js";
@@ -292,7 +293,8 @@ async function listConversationsService(userId) {
       lastMessageAt: conversation.lastMessageAt,
       createdAt: conversation.createdAt,
       preview:
-        conversation.messages?.[conversation.messages.length - 1]?.content || "",
+        conversation.messages?.[conversation.messages.length - 1]?.content ||
+        "",
       messageCount: conversation.messages?.length || 0,
     })),
   };
@@ -305,10 +307,40 @@ async function getConversationService(conversationId, userId) {
   }).lean();
 
   if (!conversation) {
-    return { success: false, statusCode: 404, message: "Conversation not found." };
+    return {
+      success: false,
+      statusCode: 404,
+      message: "Conversation not found.",
+    };
   }
 
   return { success: true, data: conversation };
+}
+
+async function deleteConversationsService(conversationIds, userId) {
+  if (!Array.isArray(conversationIds) || !conversationIds.length) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Select at least one conversation.",
+    };
+  }
+  if (
+    conversationIds.length > 100 ||
+    conversationIds.some((id) => !mongoose.Types.ObjectId.isValid(id))
+  ) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Conversation selection is invalid.",
+    };
+  }
+
+  const result = await Conversation.deleteMany({
+    _id: { $in: conversationIds },
+    user: userId,
+  });
+  return { success: true, deletedCount: result.deletedCount || 0 };
 }
 
 async function chatWithJuvoService({ userId, conversationId, message }) {
@@ -387,6 +419,7 @@ async function chatWithJuvoService({ userId, conversationId, message }) {
 export {
   analyzeJournalWithAi,
   chatWithJuvoService,
+  deleteConversationsService,
   getConversationService,
   listConversationsService,
 };

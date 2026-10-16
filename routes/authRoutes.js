@@ -9,6 +9,8 @@ import {
   generateOtpVerificationToken,
   verifyOtpVerificationCode,
   resetPassword,
+  verifyEmail,
+  resendEmailVerification,
 } from "../controllers/authController.js";
 import { onBoardingUser } from "../controllers/onBoarding.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
@@ -21,6 +23,12 @@ const authRoutes = Router();
 
 authRoutes.post("/sign-up", signup);
 authRoutes.post("/sign-in", signin);
+authRoutes.get("/verify-email/:token", verifyEmail);
+authRoutes.post(
+  "/resend-verification",
+  verifyOtpVerificationCodeLimiter,
+  resendEmailVerification,
+);
 authRoutes.post("/apple", appleAuth);
 authRoutes.get("/me", requireAuth, me);
 authRoutes.post("/logout", requireAuth, logout);

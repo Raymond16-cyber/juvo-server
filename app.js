@@ -12,12 +12,14 @@ import goalRoutes from "./routes/goal.route.js";
 import brokerRoutes from "./routes/broker.route.js";
 import billingRoutes from "./routes/billing.route.js";
 import { paystackWebhookController } from "./controllers/billing.controller.js";
+import waitlistRoutes from "./routes/waitlist.route.js";
 
 const app = express();
 // Set only to the exact trusted proxy hops/subnets in deployments with TLS termination.
 if (process.env.TRUST_PROXY_HOPS) {
   const hops = Number(process.env.TRUST_PROXY_HOPS);
-  if (!Number.isInteger(hops) || hops < 1 || hops > 5) throw new Error("TRUST_PROXY_HOPS must be an integer between 1 and 5.");
+  if (!Number.isInteger(hops) || hops < 1 || hops > 5)
+    throw new Error("TRUST_PROXY_HOPS must be an integer between 1 and 5.");
   app.set("trust proxy", hops);
 }
 const configuredClientOrigin =
@@ -52,8 +54,15 @@ app.use(
 );
 
 // Paystack signs the exact raw body, so this must be mounted before JSON parsing.
-app.post("/api/billing/webhook", express.raw({ type: "application/json", limit: "256kb" }), paystackWebhookController);
-app.use(["/api/broker/metatrader", "/api/brokers/metatrader"], express.json({ limit: "512kb", strict: true }));
+app.post(
+  "/api/billing/webhook",
+  express.raw({ type: "application/json", limit: "256kb" }),
+  paystackWebhookController,
+);
+app.use(
+  ["/api/broker/metatrader", "/api/brokers/metatrader"],
+  express.json({ limit: "512kb", strict: true }),
+);
 app.use(express.json());
 
 app.get("/health", (req, res) => {
@@ -61,6 +70,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/onboarding", onboardRoutes);
 app.use("/api/trading-account", tradingAccountRoutes);
 app.use("/api/journal", journalRoutes);

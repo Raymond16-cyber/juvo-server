@@ -1,5 +1,6 @@
 import {
   chatWithJuvoService,
+  deleteConversationsService,
   getConversationService,
   listConversationsService,
 } from "../services/ai.service.js";
@@ -33,12 +34,34 @@ async function getConversationController(req, res, next) {
     );
 
     if (!result.success) {
-      return res.status(result.statusCode || 400).json({ message: result.message });
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
     }
 
     return res.status(200).json({
       message: "Conversation retrieved successfully.",
       data: result.data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function deleteConversationsController(req, res, next) {
+  try {
+    const result = await deleteConversationsService(
+      req.body?.conversationIds,
+      getUserId(req.user),
+    );
+    if (!result.success) {
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
+    }
+    return res.status(200).json({
+      message: "Conversations deleted successfully.",
+      data: { deletedCount: result.deletedCount },
     });
   } catch (error) {
     next(error);
@@ -61,7 +84,9 @@ async function chatController(req, res, next) {
     });
 
     if (!result.success) {
-      return res.status(result.statusCode || 400).json({ message: result.message });
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
     }
 
     return res.status(200).json({
@@ -112,6 +137,7 @@ async function startAiTrialController(req, res, next) {
 
 export {
   chatController,
+  deleteConversationsController,
   getAiAccessController,
   getConversationController,
   listConversationsController,

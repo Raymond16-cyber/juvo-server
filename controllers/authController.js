@@ -7,18 +7,72 @@ import {
   resetPasswordService,
   updatePreferencesService,
   sanitizeUser,
+  issueEmailVerificationService,
 } from "../services/authService.js";
-import { sendOtpToEmail } from "../utils/email.js";
+import { sendEmailVerificationEmail, sendOtpToEmail } from "../utils/email.js";
+import { updateUser } from "../repositories/userRepository.js";
 import User from "../models/User.js";
 
 async function signup(req, res, next) {
   try {
     const result = await registerService(req.body);
+    let verificationSent = true;
+    try {
+      await sendEmailVerificationEmail(
+        result.user.email,
+        result.emailVerificationToken,
+      );
+    } catch {
+      verificationSent = false;
+    }
 
     return res.status(201).json({
-      message: "User registered successfully.",
+      message: verificationSent
+        ? "Account created. Check your email to verify your JUVO account."
+        : "Account created. We could not send the verification email yet; request a new one from the verification screen.",
       user: result.user,
       token: result.token,
+      verificationSent,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function verifyEmail(req, res, next) {
+  try {
+    const user = await User.findOne({
+      "security.emailVerificationToken": req.params.token,
+      "security.emailVerificationExpires": { $gt: new Date() },
+    });
+    if (!user)
+      return res
+        .status(400)
+        .json({ message: "This verification link is invalid or expired." });
+    await updateUser(user._id, {
+      "security.emailVerified": true,
+      "security.emailVerificationToken": null,
+      "security.emailVerificationExpires": null,
+    });
+    return res.json({ message: "Email verified successfully." });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function resendEmailVerification(req, res, next) {
+  try {
+    const result = await issueEmailVerificationService(req.body?.email);
+    if (result) {
+      try {
+        await sendEmailVerificationEmail(result.email, result.token);
+      } catch {
+        // Keep the response generic and allow the user to retry later.
+      }
+    }
+    return res.json({
+      message:
+        "If the account can receive verification mail, a new link has been sent.",
     });
   } catch (error) {
     return next(error);
@@ -28,7 +82,6 @@ async function signup(req, res, next) {
 async function signin(req, res, next) {
   try {
     const result = await loginService(req.body);
-    
 
     return res.status(200).json({
       message: "Login successful.",
@@ -200,6 +253,8 @@ export {
   updatePreferences,
   generateOtpVerificationToken,
   verifyOtpVerificationCode,
+  verifyEmail,
+  resendEmailVerification,
   resetPassword,
   editUserInfo,
 };

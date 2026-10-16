@@ -5,6 +5,7 @@ import { paystackWebhookController } from "../controllers/billing.controller.js"
 import { billingConfig } from "../billing/paystack.config.js";
 import {
   initializeCheckout,
+  introductoryPaymentAmount,
   recordRenewalPayment,
   statusFromVerifiedCharge,
   verifyExpectedTransaction,
@@ -73,6 +74,11 @@ test("billing configuration requires server-only key, currency, and both plans",
   assert.equal(config.mode, "test");
   assert.equal(config.currency, "NGN");
   assert.equal(config.plans.pro.monthly, "PLN_pro_monthly");
+});
+
+test("waitlist discount is fixed at 40% and keeps the normal renewal amount separate", () => {
+  assert.equal(introductoryPaymentAmount(190000), 114000);
+  assert.equal(introductoryPaymentAmount(1), 1);
 });
 
 test("billing configuration selects the matching test or live credentials and plans", () => {
@@ -157,6 +163,7 @@ test("checkout reads the configured Paystack plan and sends only server-derived 
       _id: "user-1",
       email: "trader@example.com",
       subscription: { plan: "free" },
+      security: { emailVerified: true },
     }),
   }));
   t.mock.method(Subscription, "find", () => ({ sort: async () => [] }));
@@ -192,7 +199,11 @@ test("checkout reads the configured Paystack plan and sends only server-derived 
 test("a non-renewing plan can be replaced by a different plan", async (t) => {
   withPaystackEnvironment(t);
   t.mock.method(User, "findById", () => ({
-    select: async () => ({ _id: "user-1", email: "trader@example.com" }),
+    select: async () => ({
+      _id: "user-1",
+      email: "trader@example.com",
+      security: { emailVerified: true },
+    }),
   }));
   t.mock.method(Subscription, "find", () => ({
     sort: async () => [

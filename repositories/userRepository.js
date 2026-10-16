@@ -28,6 +28,7 @@ export async function createUser(userData) {
     providerId: userData.providerId || null,
     password: userData.password || null,
     pushToken: userData.pushToken || null,
+    security: userData.security,
   });
 
   return user;
@@ -37,4 +38,3 @@ export async function updateUser(userId, updates) {
   const user = await User.findByIdAndUpdate(userId, updates, { new: true });
   return user;
 }
-

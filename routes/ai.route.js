@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/authMiddleware.js";
 import { requireEntitlement } from "../middleware/entitlementMiddleware.js";
 import {
   chatController,
+  deleteConversationsController,
   getAiAccessController,
   getConversationController,
   listConversationsController,
@@ -16,7 +17,18 @@ const requireJuvoAi = requireEntitlement(ENTITLEMENTS.JUVO_AI);
 
 aiRoutes.get("/access", requireAuth, getAiAccessController);
 aiRoutes.post("/trial/start", requireAuth, startAiTrialController);
-aiRoutes.get("/conversations", requireAuth, requireJuvoAi, listConversationsController);
+aiRoutes.get(
+  "/conversations",
+  requireAuth,
+  requireJuvoAi,
+  listConversationsController,
+);
+aiRoutes.delete(
+  "/conversations",
+  requireAuth,
+  requireJuvoAi,
+  deleteConversationsController,
+);
 aiRoutes.get(
   "/conversations/:conversationId",
   requireAuth,
