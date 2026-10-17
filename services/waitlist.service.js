@@ -221,11 +221,13 @@ async function joinWaitlistService(payload = {}) {
         unsubscribeTokenHash: hashCode(unsubscribeToken),
       }),
     );
+    console.log("working...")
 
     console.log("[Waitlist] New waitlist user created", {
       waitlistId: String(waitlist._id),
     });
   } else {
+    console.log("else function triggered")
     waitlist.name = input.name || waitlist.name;
     waitlist.status = "active";
     waitlist.promotionalOptOut = false;
