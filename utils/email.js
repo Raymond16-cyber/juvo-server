@@ -1,38 +1,50 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { performance } from "node:perf_hooks";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
-  },
+const EMAIL_FROM = process.env.EMAIL_FROM;
 
-  // Prevent SMTP operations from hanging for too long.
-  connectionTimeout: 10_000,
-  greetingTimeout: 10_000,
-  socketTimeout: 20_000,
-});
-
-async function sendMailWithLogging(mailOptions) {
+async function sendMailWithLogging({ to, subject, html }) {
   const startedAt = performance.now();
 
   try {
-    const result = await transporter.sendMail(mailOptions);
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY is not configured.");
+    }
 
-    console.log(
-      `[Email] Sent successfully in ${Math.round(
-        performance.now() - startedAt,
-      )}ms`,
-    );
+    if (!EMAIL_FROM) {
+      throw new Error("EMAIL_FROM is not configured.");
+    }
 
-    return result;
+    const { data, error } = await resend.emails.send({
+      from: EMAIL_FROM,
+      to,
+      subject,
+      html,
+    });
+
+    // Resend may return an error object instead of throwing an exception.
+    if (error) {
+      const deliveryError = new Error(error.message);
+      deliveryError.code = error.name || "RESEND_DELIVERY_FAILED";
+      throw deliveryError;
+    }
+
+    console.log("[Email] Sent successfully", {
+      to,
+      subject,
+      emailId: data?.id,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
+
+    return data;
   } catch (error) {
     console.error("[Email] Delivery failed", {
+      to,
+      subject,
       elapsedMs: Math.round(performance.now() - startedAt),
       code: error.code,
-      command: error.command,
       message: error.message,
     });
 
@@ -81,7 +93,6 @@ export async function sendOtpToEmail(email, otp, type) {
   }
 
   await sendMailWithLogging({
-    from: `"JUVO" <${process.env.EMAIL_USER}>`,
     to: email,
     subject,
     html,
@@ -99,7 +110,6 @@ export async function sendWaitlistInvitationEmail(
   const safeName = String(name || "there").replace(/[<>]/g, "");
 
   await sendMailWithLogging({
-    from: `"JUVO" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Your JUVO early-access invitation",
     html: `
@@ -136,7 +146,6 @@ export async function sendEmailVerificationEmail(email, token) {
     encodeURIComponent(token);
 
   await sendMailWithLogging({
-    from: `"JUVO" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Verify your JUVO email",
     html: `
@@ -174,7 +183,6 @@ export async function sendLaunchAnnouncementEmail({
   const safeName = String(name || "there").replace(/[<>]/g, "");
 
   await sendMailWithLogging({
-    from: `"JUVO" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "JUVO is live: your early-access invitation is ready",
     html: `
