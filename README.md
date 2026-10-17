@@ -19,6 +19,8 @@ The independent three-day JUVO AI trial is unchanged. Paid entitlements are enfo
 
 Authenticated, verified users can validate an invitation through `POST /api/billing/invitation/validate` and include the raw code in `POST /api/billing/checkout`. JUVO calculates a fixed 40% discount from the server-side Paystack plan amount, charges 60% for the first qualifying payment without attaching a plan code, then creates the normal-price Paystack subscription from the successful payment authorization. This is required because Paystack plan codes override the transaction amount. The invitation is reserved during checkout and redeemed only after trusted Paystack verification; failed or abandoned payments do not redeem it. No raw invitation code is returned by the API or written to logs.
 
+Launch and reminder campaigns are manual and server-controlled. Set `WAITLIST_CAMPAIGN_TOKEN`, then call `POST /api/waitlist/campaigns/send` with `{ "campaignId": "launch-YYYY-MM-DD", "kind": "launch" }` and the `x-waitlist-campaign-token` header. Reminder calls must also provide an explicit `launchAt` and `daysAfterLaunch` of `3` or `7`; the endpoint refuses reminders before they are due. Campaign sends are idempotent per campaign and waitlist member, exclude converted, expired, unsubscribed, and opted-out recipients, and never reset invitation expiry. Promotional emails include an unsubscribe URL handled by `GET /api/waitlist/unsubscribe/:token`.
+
 ## MT5 Connector
 
 JUVO now supports a first-party, read-only MT5 EA connector. See [installation and demo testing](connectors/mt5/README.md) and the [migration/delivery report](docs/mt5-connector-migration.md). cTrader continues to use its independent Open API integration.

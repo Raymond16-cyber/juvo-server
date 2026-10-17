@@ -4,6 +4,11 @@ const waitlistInvitationSchema = new mongoose.Schema(
   {
     name: { type: String, trim: true, maxlength: 120, default: "" },
     email: { type: String, required: true, lowercase: true, trim: true },
+    waitlistId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Waitlist",
+      index: true,
+    },
     codeHash: { type: String, required: true, select: false },
     status: {
       type: String,

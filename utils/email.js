@@ -107,3 +107,29 @@ export async function sendEmailVerificationEmail(email, token) {
     `,
   });
 }
+
+export async function sendLaunchAnnouncementEmail({
+  email,
+  name,
+  code,
+  expiresAt,
+  unsubscribeUrl,
+  getStartedUrl,
+}) {
+  const safeName = String(name || "there").replace(/[<>]/g, "");
+  await transporter.sendMail({
+    from: `"JUVO" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: "JUVO is live: your early-access invitation is ready",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 520px; margin: auto; color: #0f172a;">
+        <h2>JUVO is live${safeName === "there" ? "" : `, ${safeName}`}</h2>
+        <p>JUVO is now open. Start building a calmer, more honest trading review practice today.</p>
+        <p>Your invitation includes 40% off your first successful qualifying subscription payment. Future payments use the normal plan price.</p>
+        <p><a href="${getStartedUrl}" style="display:inline-block;padding:12px 18px;background:#00d4ff;color:#0f172a;text-decoration:none;font-weight:bold;border-radius:999px;">Get started</a></p>
+        <p>Register or sign in, verify your email, and enter the invitation code from your original invitation email during checkout. Your invitation expires on ${new Date(expiresAt).toUTCString()}.</p>
+        <p><a href="${unsubscribeUrl}">Unsubscribe from JUVO promotional emails</a></p>
+      </div>
+    `,
+  });
+}

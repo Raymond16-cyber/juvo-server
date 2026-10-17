@@ -18,7 +18,7 @@ function signToken(user) {
     jwtSecret,
     {
       expiresIn: jwtExpiresIn,
-    }
+    },
   );
 }
 
@@ -45,9 +45,26 @@ function verifyOAuthState(token) {
   return decoded;
 }
 
+function signWaitlistUnsubscribeToken(waitlistId) {
+  return jwt.sign(
+    { sub: String(waitlistId), purpose: "waitlist-unsubscribe" },
+    jwtSecret,
+    { expiresIn: "365d" },
+  );
+}
+
+function verifyWaitlistUnsubscribeToken(token) {
+  const decoded = jwt.verify(token, jwtSecret);
+  if (decoded?.purpose !== "waitlist-unsubscribe")
+    throw new Error("Invalid waitlist unsubscribe token.");
+  return decoded;
+}
+
 export {
   signToken,
   verifyToken,
   signOAuthState,
   verifyOAuthState,
+  signWaitlistUnsubscribeToken,
+  verifyWaitlistUnsubscribeToken,
 };

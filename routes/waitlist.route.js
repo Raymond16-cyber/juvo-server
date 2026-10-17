@@ -3,6 +3,8 @@ import rateLimit from "express-rate-limit";
 import {
   joinWaitlist,
   retryWaitlist,
+  sendCampaign,
+  unsubscribe,
 } from "../controllers/waitlist.controller.js";
 
 const waitlistLimiter = rateLimit({
@@ -16,5 +18,7 @@ const waitlistRoutes = Router();
 
 waitlistRoutes.post("/", waitlistLimiter, joinWaitlist);
 waitlistRoutes.post("/retry", waitlistLimiter, retryWaitlist);
+waitlistRoutes.post("/campaigns/send", sendCampaign);
+waitlistRoutes.get("/unsubscribe/:token", unsubscribe);
 
 export default waitlistRoutes;

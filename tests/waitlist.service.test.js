@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import WaitlistInvitation from "../models/WaitlistInvitation.js";
+import Waitlist from "../models/Waitlist.js";
 import {
   joinWaitlistService,
   waitlistEmailSender,
@@ -12,6 +13,12 @@ test("waitlist signup stores a hashed code with a 30-day expiry and emails the r
   t.mock.method(WaitlistInvitation, "findOne", () => ({
     select: async () => null,
   }));
+  t.mock.method(Waitlist, "findOne", () => ({ select: async () => null }));
+  t.mock.method(Waitlist, "create", async (values) => ({
+    ...values,
+    _id: "waitlist-1",
+  }));
+  t.mock.method(Waitlist, "updateOne", async () => ({}));
   t.mock.method(WaitlistInvitation, "create", async (values) => {
     created = { ...values, _id: "invitation-1" };
     return created;
@@ -41,6 +48,9 @@ test("waitlist signup stores a hashed code with a 30-day expiry and emails the r
 });
 
 test("duplicate active waitlist submissions are rejected without sending another invitation", async (t) => {
+  t.mock.method(Waitlist, "findOne", () => ({
+    select: async () => ({ status: "active", promotionalOptOut: false }),
+  }));
   t.mock.method(WaitlistInvitation, "findOne", () => ({
     select: async () => ({
       status: "sent",

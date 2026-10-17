@@ -2,6 +2,8 @@ import Payment from "../models/Payment.js";
 import PaymentWebhookEvent from "../models/PaymentWebhookEvent.js";
 import Subscription from "../models/Subscription.js";
 import WaitlistInvitation from "../models/WaitlistInvitation.js";
+import Waitlist from "../models/Waitlist.js";
+import WaitlistCampaignSend from "../models/WaitlistCampaignSend.js";
 
 async function ensureSparseUniqueIndex(model, name, key) {
   const indexes = await model.collection.indexes();
@@ -31,6 +33,8 @@ export async function initializeBillingIndexes() {
     Payment,
     PaymentWebhookEvent,
     WaitlistInvitation,
+    Waitlist,
+    WaitlistCampaignSend,
   ])
     await model.createIndexes();
 }

@@ -1,10 +1,19 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import WaitlistInvitation from "../models/WaitlistInvitation.js";
-import { sendWaitlistInvitationEmail } from "../utils/email.js";
+import Waitlist from "../models/Waitlist.js";
+import WaitlistCampaignSend from "../models/WaitlistCampaignSend.js";
+import {
+  sendLaunchAnnouncementEmail,
+  sendWaitlistInvitationEmail,
+} from "../utils/email.js";
 import {
   WAITLIST_INVITATION_TTL_MS,
   WAITLIST_DISCOUNT_PERCENT,
 } from "../billing/waitlist.config.js";
+import {
+  signWaitlistUnsubscribeToken,
+  verifyWaitlistUnsubscribeToken,
+} from "../utils/token.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const waitlistEmailSender = {
@@ -39,6 +48,10 @@ function codesMatch(code, hash) {
 
 function createCode() {
   return randomBytes(18).toString("base64url").toUpperCase();
+}
+
+function createUnsubscribeToken() {
+  return randomBytes(24).toString("base64url");
 }
 
 function validateInput({ email, name } = {}) {
@@ -98,6 +111,33 @@ async function deliverInvitation(invitation, code) {
 async function joinWaitlistService(payload = {}) {
   const input = validateInput(payload);
   const now = new Date();
+  let waitlist = await Waitlist.findOne({ email: input.email }).select(
+    "+unsubscribeTokenHash",
+  );
+  if (waitlist && waitlist.status === "active" && !waitlist.promotionalOptOut) {
+    throw waitlistError(
+      "This email is already on the JUVO waitlist.",
+      409,
+      "WAITLIST_EXISTS",
+    );
+  }
+  const unsubscribeToken = createUnsubscribeToken();
+  if (!waitlist) {
+    waitlist = await Waitlist.create({
+      name: input.name,
+      email: input.email,
+      joinedAt: now,
+      unsubscribeTokenHash: hashCode(unsubscribeToken),
+    });
+    console.log("new user joined",waitlist)
+  } else {
+    waitlist.name = input.name || waitlist.name;
+    waitlist.status = "active";
+    waitlist.promotionalOptOut = false;
+    waitlist.unsubscribeTokenHash = hashCode(unsubscribeToken);
+    waitlist.unsubscribedAt = null;
+    await waitlist.save();
+  }
   let invitation = await WaitlistInvitation.findOne({
     email: input.email,
   }).select("+codeHash +reservedPaymentId +reservationExpiresAt");
@@ -120,6 +160,7 @@ async function joinWaitlistService(payload = {}) {
   const values = {
     name: input.name,
     email: input.email,
+    waitlistId: waitlist._id,
     codeHash: hashCode(code),
     status: "pending",
     issuedAt,
@@ -142,6 +183,10 @@ async function joinWaitlistService(payload = {}) {
   } else {
     invitation = await WaitlistInvitation.create(values);
   }
+  await Waitlist.updateOne(
+    { _id: waitlist._id },
+    { $set: { invitationId: invitation._id } },
+  );
   await deliverInvitation(invitation, code);
   return { email: input.email, expiresAt };
 }
@@ -158,12 +203,16 @@ async function retryWaitlistInvitation(payload = {}) {
       "INVITATION_NOT_RETRYABLE",
     );
   }
+  if (invitation.expiresAt <= new Date()) {
+    throw waitlistError(
+      "This invitation has expired and cannot be retried.",
+      410,
+      "INVITATION_EXPIRED",
+    );
+  }
   const code = createCode();
-  const now = new Date();
   invitation.codeHash = hashCode(code);
   invitation.status = "pending";
-  invitation.issuedAt = now;
-  invitation.expiresAt = new Date(now.getTime() + WAITLIST_INVITATION_TTL_MS);
   invitation.emailDelivery = {
     status: "pending",
     retryCount: (invitation.emailDelivery?.retryCount || 0) + 1,
@@ -277,6 +326,129 @@ async function redeemInvitation({
   return invitation;
 }
 
+async function unsubscribeWaitlist(token) {
+  let decoded;
+  try {
+    decoded = verifyWaitlistUnsubscribeToken(token);
+  } catch {
+    throw waitlistError(
+      "This unsubscribe link is invalid.",
+      400,
+      "UNSUBSCRIBE_INVALID",
+    );
+  }
+  const waitlist = await Waitlist.findById(decoded.sub);
+  if (!waitlist)
+    throw waitlistError(
+      "This unsubscribe link is invalid.",
+      400,
+      "UNSUBSCRIBE_INVALID",
+    );
+  await Waitlist.updateOne(
+    { _id: waitlist._id },
+    {
+      $set: {
+        status: "unsubscribed",
+        promotionalOptOut: true,
+        unsubscribedAt: new Date(),
+      },
+    },
+  );
+  return { unsubscribed: true };
+}
+
+async function sendWaitlistCampaign({
+  campaignId,
+  kind = "launch",
+  launchAt,
+  daysAfterLaunch = 0,
+}) {
+  if (!campaignId || !/^[A-Za-z0-9_-]{1,80}$/.test(campaignId))
+    throw waitlistError("Campaign id is invalid.", 422, "CAMPAIGN_INVALID");
+  const now = new Date();
+  if (kind === "reminder") {
+    const launchDate = new Date(launchAt || "");
+    const dueAt = new Date(
+      launchDate.getTime() + Number(daysAfterLaunch) * 24 * 60 * 60 * 1000,
+    );
+    if (
+      !Number.isFinite(launchDate.getTime()) ||
+      !Number.isFinite(dueAt.getTime()) ||
+      dueAt > now
+    )
+      throw waitlistError(
+        "This reminder is not due yet.",
+        422,
+        "REMINDER_NOT_DUE",
+      );
+  }
+  const waitlists = await Waitlist.find({
+    status: "active",
+    promotionalOptOut: false,
+  }).lean();
+  const baseUrl = (
+    process.env.CLIENT_URL ||
+    process.env.CLIENT_ORIGIN ||
+    "http://localhost:3000"
+  ).replace(/\/$/, "");
+  let sent = 0;
+  let skipped = 0;
+  for (const waitlist of waitlists) {
+    const invitation = await WaitlistInvitation.findOne({
+      waitlistId: waitlist._id,
+      status: "sent",
+      expiresAt: { $gt: now },
+      userId: null,
+    }).lean();
+    if (!invitation) {
+      skipped += 1;
+      continue;
+    }
+    let campaignSend;
+    try {
+      campaignSend = await WaitlistCampaignSend.create({
+        campaignId,
+        kind,
+        waitlistId: waitlist._id,
+        invitationId: invitation._id,
+        email: waitlist.email,
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        skipped += 1;
+        continue;
+      }
+      throw error;
+    }
+    try {
+      await sendLaunchAnnouncementEmail({
+        email: waitlist.email,
+        name: waitlist.name,
+        expiresAt: invitation.expiresAt,
+        getStartedUrl: `${baseUrl}/auth/register`,
+        unsubscribeUrl: `${baseUrl}/api/waitlist/unsubscribe/${signWaitlistUnsubscribeToken(waitlist._id)}`,
+      });
+      await WaitlistCampaignSend.updateOne(
+        { _id: campaignSend._id },
+        { $set: { status: "sent", sentAt: new Date() } },
+      );
+      sent += 1;
+    } catch {
+      await WaitlistCampaignSend.updateOne(
+        { _id: campaignSend._id },
+        {
+          $set: {
+            status: "failed",
+            failedAt: new Date(),
+            lastError: "DELIVERY_FAILED",
+          },
+        },
+      );
+    }
+  }
+  return { campaignId, kind, sent, skipped };
+}
+
 export {
   joinWaitlistService,
   retryWaitlistInvitation,
@@ -284,4 +456,6 @@ export {
   reserveInvitation,
   releaseInvitation,
   redeemInvitation,
+  sendWaitlistCampaign,
+  unsubscribeWaitlist,
 };
