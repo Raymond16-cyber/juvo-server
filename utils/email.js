@@ -32,7 +32,7 @@ async function sendMailWithLogging({ to, subject, html }) {
     }
 
     console.log("[Email] Sent successfully", {
-      to,
+      to: hashStarEmail(to),
       subject,
       emailId: data?.id,
       elapsedMs: Math.round(performance.now() - startedAt),

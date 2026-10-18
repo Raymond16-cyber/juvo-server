@@ -243,6 +243,10 @@ const userSchema = new mongoose.Schema(
         default: null,
         select: false,
       },
+      emailVerificationTokenUsedHash: {
+        type: String,
+        default: null,
+      },
 
       lastLogin: Date,
     },

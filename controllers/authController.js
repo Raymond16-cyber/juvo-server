@@ -43,30 +43,54 @@ async function signup(req, res, next) {
   }
 }
 
+
+import crypto from "crypto";
+
 async function verifyEmail(req, res, next) {
   try {
     const { token } = req.params;
 
+    if (!token) {
+      return res.status(400).json({
+        message: "No verification token provided.",
+      });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    // First, check whether this exact token was already used.
+    const alreadyVerified = await User.findOne({
+      "security.emailVerificationTokenUsedHash": tokenHash,
+      "security.emailVerified": true,
+    });
+
+    if (alreadyVerified) {
+      return res.status(200).json({
+        message: "Email verified successfully.",
+      });
+    }
+
+    // Otherwise, find a user with a valid, unexpired token.
     const user = await User.findOne({
       "security.emailVerificationToken": token,
       "security.emailVerificationExpires": { $gt: new Date() },
     });
 
     if (!user) {
-      // A duplicate request may arrive after the first one
-      // successfully verified the email and cleared the token.
       return res.status(400).json({
         message: "This verification link is invalid or expired.",
       });
     }
 
+    // Store a hash of the consumed token before clearing it.
     await updateUser(user._id, {
       "security.emailVerified": true,
+      "security.emailVerificationTokenUsedHash": tokenHash,
       "security.emailVerificationToken": null,
       "security.emailVerificationExpires": null,
     });
-    const hashedEmail = hashStarEmail(user?.email);
-    console.log("verification successful for", hashedEmail);
+
+    console.log("Verification successful for", hashStarEmail(user.email));
 
     return res.status(200).json({
       message: "Email verified successfully.",
@@ -75,6 +99,8 @@ async function verifyEmail(req, res, next) {
     return next(error);
   }
 }
+
+export default verifyEmail;
 
 
 async function resendEmailVerification(req, res, next) {
@@ -115,7 +141,6 @@ async function resendEmailVerification(req, res, next) {
     return next(error);
   }
 }
-
 
 async function signin(req, res, next) {
   try {
