@@ -12,7 +12,9 @@ import { resolveReportingCurrency } from "../services/currency/currency.utils.js
 
 async function exportJournalsController(req, res, next) {
   try {
-    const result = await getUserJournalsService(req.user.id, { includeExportFields: true });
+    const result = await getUserJournalsService(req.user.id, {
+      includeExportFields: true,
+    });
     if (!result.success) throw new Error("Unable to load journal export.");
     res.set("Cache-Control", "no-store");
     return res.json({
@@ -28,6 +30,7 @@ async function exportJournalsController(req, res, next) {
 }
 
 async function getTodayJournalStatusController(req, res, next) {
+  console.log("getting journal status");
   try {
     const userId = req.user.id;
     if (!userId) {
@@ -97,7 +100,9 @@ async function getJournalByIdController(req, res, next) {
     );
 
     if (!result.success) {
-      return res.status(result.statusCode || 400).json({ message: result.message });
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
     }
 
     return res.status(200).json({
@@ -195,7 +200,9 @@ async function closeJournalTradeController(req, res, next) {
     );
 
     if (!result.success) {
-      return res.status(result.statusCode || 400).json({ message: result.message });
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
     }
 
     const accountStatus = result.tradingAccount?.status;
@@ -227,7 +234,9 @@ async function completeJournalController(req, res, next) {
     );
 
     if (!result.success) {
-      return res.status(result.statusCode || 400).json({ message: result.message });
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
     }
 
     return res.status(200).json({

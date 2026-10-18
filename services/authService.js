@@ -21,6 +21,7 @@ import {
 } from "..//validations/authValidation.js";
 import { sendWelcomeNotification } from "../services/notificationService.js";
 import { randomUUID } from "node:crypto";
+import { normalizeTimeZone } from "../utils/timezone.js";
 
 function sanitizeUser(user) {
   const json = typeof user.toJSON === "function" ? user.toJSON() : user;
@@ -393,7 +394,7 @@ async function updatePreferencesService(userId, payload = {}) {
   const reminderTime = String(payload.reminderTime || "").trim();
   const fullName = String(payload.fullName || "").trim();
   const country = String(payload.country || "").trim();
-  const timezone = String(payload.timezone || "").trim();
+  const timezone = normalizeTimeZone(String(payload.timezone || "").trim());
   const experienceLevel = String(payload.experienceLevel || "").trim();
   const tradingStyle = String(payload.tradingStyle || "").trim();
   const instruments = Array.isArray(payload.instruments)

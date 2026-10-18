@@ -10,10 +10,17 @@ import {
   getUserJournalsController,
 } from "../controllers/journal.controller.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
+import { requireEntitlement } from "../middleware/entitlementMiddleware.js";
+import { ENTITLEMENTS } from "../services/entitlement.service.js";
 
 const journalRoutes = Router();
 
-journalRoutes.get("/export", requireAuth, exportJournalsController);
+journalRoutes.get(
+  "/export",
+  requireAuth,
+  requireEntitlement(ENTITLEMENTS.DATA_EXPORT),
+  exportJournalsController,
+);
 
 journalRoutes.post("/create-journal", requireAuth, createJournalController);
 journalRoutes.post(

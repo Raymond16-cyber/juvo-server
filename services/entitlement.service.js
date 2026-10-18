@@ -6,6 +6,7 @@ const ENTITLEMENTS = Object.freeze({
   ADVANCED_ANALYTICS: "advanced_analytics",
   BEHAVIORAL_INSIGHTS: "behavioral_insights",
   JUVO_AI: "juvo_ai",
+  DATA_EXPORT: "data_export",
 });
 
 const PLAN_ENTITLEMENTS = Object.freeze({
@@ -16,6 +17,7 @@ const PLAN_ENTITLEMENTS = Object.freeze({
     ENTITLEMENTS.ADVANCED_ANALYTICS,
     ENTITLEMENTS.BEHAVIORAL_INSIGHTS,
     ENTITLEMENTS.JUVO_AI,
+    ENTITLEMENTS.DATA_EXPORT,
   ],
   super: [
     ENTITLEMENTS.BASIC_JOURNAL,
@@ -23,6 +25,7 @@ const PLAN_ENTITLEMENTS = Object.freeze({
     ENTITLEMENTS.ADVANCED_ANALYTICS,
     ENTITLEMENTS.BEHAVIORAL_INSIGHTS,
     ENTITLEMENTS.JUVO_AI,
+    ENTITLEMENTS.DATA_EXPORT,
   ],
   // Future family plans should grant feature access here without sharing a
   // member's private journals, trades, broker tokens, or AI conversation data.
@@ -87,8 +90,12 @@ function hasPlanEntitlement(user, entitlement, now = new Date()) {
   // those as active until a billing record explicitly supersedes them.
   if (!status) return true;
   if (!["active", "non-renewing", "past-due"].includes(status)) return false;
-  const expiresAt = user?.subscription?.expiresAt ? new Date(user.subscription.expiresAt) : null;
-  return !expiresAt || (Number.isFinite(expiresAt.getTime()) && expiresAt > now);
+  const expiresAt = user?.subscription?.expiresAt
+    ? new Date(user.subscription.expiresAt)
+    : null;
+  return (
+    !expiresAt || (Number.isFinite(expiresAt.getTime()) && expiresAt > now)
+  );
 }
 
 function getFeatureAccess(user, entitlement, now = new Date()) {
@@ -102,7 +109,11 @@ function getFeatureAccess(user, entitlement, now = new Date()) {
     feature: entitlement,
     plan,
     hasAccess: hasSubscriptionAccess || hasTrialAccess,
-    source: hasSubscriptionAccess ? "subscription" : hasTrialAccess ? "trial" : null,
+    source: hasSubscriptionAccess
+      ? "subscription"
+      : hasTrialAccess
+        ? "trial"
+        : null,
     trial,
   };
 }
@@ -147,8 +158,12 @@ async function startJuvoAiTrial(userId) {
     return getFeatureAccess(startedUser, ENTITLEMENTS.JUVO_AI, now);
   }
 
-  const existingUser = await User.findById(userId).select("subscription entitlements");
-  return existingUser ? getFeatureAccess(existingUser, ENTITLEMENTS.JUVO_AI, now) : null;
+  const existingUser = await User.findById(userId).select(
+    "subscription entitlements",
+  );
+  return existingUser
+    ? getFeatureAccess(existingUser, ENTITLEMENTS.JUVO_AI, now)
+    : null;
 }
 
 async function userCanUseJuvoAi(userId) {

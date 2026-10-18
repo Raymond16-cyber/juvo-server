@@ -15,6 +15,7 @@
     "cors": "^2.8.5",
     "cron-job": "^1.0.3",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "expo-server-sdk": "^4.0.0",
     "express": "^4.19.2",
     "express-rate-limit": "^8.6.1",
@@ -23,6 +24,7 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
     "openai": "^6.49.0",
+    "pdfkit": "^0.20.2",
     "resend": "^6.34.1",
     "tesseract.js": "^7.0.0",
     "ws": "^8.21.3"

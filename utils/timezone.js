@@ -1,19 +1,3 @@
-function getZonedDateParts(date, timeZone) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-
-  return Object.fromEntries(
-    formatter
-      .formatToParts(date)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, Number(part.value)]),
-  );
-}
-
 function zonedTimeToUtc(
   { year, month, day, hour, minute, second, millisecond },
   timeZone,
@@ -58,7 +42,7 @@ function zonedTimeToUtc(
 
 function getTodayBounds(timeZone = "UTC") {
   const today = getZonedDateParts(new Date(), timeZone);
-
+  console.log(today);
   return {
     startOfDay: zonedTimeToUtc(
       { ...today, hour: 0, minute: 0, second: 0, millisecond: 0 },
@@ -71,8 +55,68 @@ function getTodayBounds(timeZone = "UTC") {
   };
 }
 
-function getUserTimeZone(user) {
-  return user?.profile?.timezone || "UTC";
+function isValidTimeZone(timeZone) {
+  if (typeof timeZone !== "string" || !timeZone.trim()) {
+    return false;
+  }
+
+  try {
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export { getTodayBounds, getUserTimeZone, getZonedDateParts, zonedTimeToUtc };
+function getUserTimeZone(user) {
+  const timeZone = user?.profile?.timezone;
+
+  return isValidTimeZone(timeZone) ? timeZone : "UTC";
+}
+
+function getZonedDateParts(date, timeZone) {
+  const safeTimeZone = isValidTimeZone(timeZone) ? timeZone : "UTC";
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: safeTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  return Object.fromEntries(
+    formatter
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+}
+
+// THis functions changes wrong time zones to the fallback UTC time zone
+function normalizeTimeZone(timeZone) {
+  if (typeof timeZone !== "string" || !timeZone.trim()) {
+    return "UTC";
+  }
+
+  try {
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timeZone.trim(),
+    });
+    console.log("fallback timezone",timeZone)
+    return timeZone.trim();
+  } catch {
+    return "UTC";
+  }
+}
+
+export {
+  getTodayBounds,
+  getUserTimeZone,
+  getZonedDateParts,
+  zonedTimeToUtc,
+  isValidTimeZone,
+  normalizeTimeZone,
+};
