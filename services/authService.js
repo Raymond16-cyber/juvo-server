@@ -420,7 +420,7 @@ async function updatePreferencesService(userId, payload = {}) {
   const reminderTime = String(payload.reminderTime || "").trim();
   const fullName = String(payload.fullName || "").trim();
   const country = String(payload.country || "").trim();
-  const timezone = normalizeTimeZone(String(payload.timezone || "").trim());
+  const timezone = String(payload.timezone || "").trim();
   const experienceLevel = String(payload.experienceLevel || "").trim();
   const tradingStyle = String(payload.tradingStyle || "").trim();
   const instruments = Array.isArray(payload.instruments)
@@ -449,6 +449,7 @@ async function updatePreferencesService(userId, payload = {}) {
   if (fullName) updates.fullName = fullName;
   if (country) updates["profile.country"] = country;
   if (timezone) updates["profile.timezone"] = timezone;
+  
   if (
     experienceLevel &&
     ["beginner", "intermediate", "advanced", "professional"].includes(
