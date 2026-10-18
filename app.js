@@ -65,7 +65,7 @@ app.use(
 );
 app.use(express.json());
 
-app.get("/health", (req, res) => {
+app.get("/", (req, res) => {
   res.json({ status: "ok", message: "JUVO backend is running." });
 });
 
