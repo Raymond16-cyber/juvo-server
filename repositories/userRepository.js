@@ -1,13 +1,21 @@
 import User from "../models/User.js";
+import { hashStarEmail } from "../utils/email.js";
 
 export async function findUserByEmail(email) {
-  if (!email) {
+  if (!email || typeof email !== "string") {
+    console.log("Invalid email passed to findUserByEmail");
     return null;
   }
 
-  return User.findOne({ email: email.toLowerCase().trim() });
-}
+  const normalizedEmail = email.toLowerCase().trim();
+  const hashedEmail = hashStarEmail(normalizedEmail)
 
+  console.log("Searching for:", hashedEmail);
+
+  const user = await User.findOne({ email: normalizedEmail });
+
+  return user;
+}
 export async function findUserById(id) {
   return User.findById(id);
 }

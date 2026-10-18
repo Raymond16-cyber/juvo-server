@@ -101,7 +101,6 @@ export async function sendOtpToEmail(email, otp, type) {
   return otp;
 }
 
-
 function escapeHtml(value) {
   return String(value ?? "").replace(
     /[&<>"']/g,
@@ -327,12 +326,11 @@ export async function sendWaitlistInvitationEmail(
   });
 }
 
-
 export async function sendEmailVerificationEmail(email, token) {
   const baseUrl =
-    process.env.CLIENT_URL ||
-    process.env.CLIENT_ORIGIN ||
-    "http://localhost:3000";
+    process.env.NODE_ENV === "development"
+      ? process.env.CLIENT_ORIGIN || "http://localhost:3000"
+      : process.env.CLIENT_URL;
 
   const verificationUrl =
     `${baseUrl.replace(/\/$/, "")}/auth/verify-email/` +
@@ -412,4 +410,19 @@ export async function sendLaunchAnnouncementEmail({
       </div>
     `,
   });
+}
+
+// EMAIL FUNCTIONS
+export function hashStarEmail(email) {
+  let newEmail = "";
+  for (let i = 0; i < email.length; i++) {
+    if (i > 2 && i < email.length - 10) {
+      continue;
+    }
+    if (email[i] === "@") {
+      newEmail += "***";
+    }
+    newEmail += email[i];
+  }
+  return newEmail;
 }

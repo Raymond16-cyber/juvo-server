@@ -87,18 +87,44 @@ async function registerService(payload) {
   };
 }
 
+
 async function issueEmailVerificationService(email) {
   const user = await findUserByEmail(email);
-  if (!user || user.security?.emailVerified) return null;
+
+  if (!user) {
+    return {
+      success: false,
+      hasbeenVerified: false,
+      notFound: true,
+    };
+  }
+
+  if (user.security?.emailVerified) {
+    return {
+      success: false,
+      hasbeenVerified: true,
+      notFound: false,
+    };
+  }
+
   const token = randomUUID();
+
   await updateUser(user._id, {
     "security.emailVerificationToken": token,
     "security.emailVerificationExpires": new Date(
       Date.now() + 24 * 60 * 60 * 1000,
     ),
   });
-  return { email: user.email, token };
+
+  return {
+    success: true,
+    hasbeenVerified: false,
+    notFound: false,
+    email: user.email,
+    token,
+  };
 }
+
 
 async function loginService(payload) {
   const result = validateLoginInput(payload);

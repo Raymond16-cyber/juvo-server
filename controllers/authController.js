@@ -9,7 +9,11 @@ import {
   sanitizeUser,
   issueEmailVerificationService,
 } from "../services/authService.js";
-import { sendEmailVerificationEmail, sendOtpToEmail } from "../utils/email.js";
+import {
+  hashStarEmail,
+  sendEmailVerificationEmail,
+  sendOtpToEmail,
+} from "../utils/email.js";
 import { updateUser } from "../repositories/userRepository.js";
 import User from "../models/User.js";
 
@@ -41,36 +45,69 @@ async function signup(req, res, next) {
 
 async function verifyEmail(req, res, next) {
   try {
+    const { token } = req.params;
+
     const user = await User.findOne({
-      "security.emailVerificationToken": req.params.token,
+      "security.emailVerificationToken": token,
       "security.emailVerificationExpires": { $gt: new Date() },
     });
-    if (!user)
-      return res
-        .status(400)
-        .json({ message: "This verification link is invalid or expired." });
+
+    if (!user) {
+      // A duplicate request may arrive after the first one
+      // successfully verified the email and cleared the token.
+      return res.status(400).json({
+        message: "This verification link is invalid or expired.",
+      });
+    }
+
     await updateUser(user._id, {
       "security.emailVerified": true,
       "security.emailVerificationToken": null,
       "security.emailVerificationExpires": null,
     });
-    return res.json({ message: "Email verified successfully." });
+    const hashedEmail = hashStarEmail(user?.email);
+    console.log("verification successful for", hashedEmail);
+
+    return res.status(200).json({
+      message: "Email verified successfully.",
+    });
   } catch (error) {
     return next(error);
   }
 }
 
+
 async function resendEmailVerification(req, res, next) {
+  console.log("resending verification email");
+
   try {
     const result = await issueEmailVerificationService(req.body?.email);
-    if (result) {
+
+    console.log("result", result);
+
+    if (result.hasbeenVerified) {
+      return res.status(200).json({
+        message: "Your account has already been verified. Please log in.",
+        alreadyVerified: true,
+      });
+    }
+
+    if (result.notFound) {
+      return res.status(200).json({
+        message:
+          "If the account can receive verification mail, a new link has been sent.",
+      });
+    }
+
+    if (result.success) {
       try {
         await sendEmailVerificationEmail(result.email, result.token);
-      } catch {
-        // Keep the response generic and allow the user to retry later.
+      } catch (error) {
+        console.error("Failed to send verification email:", error);
       }
     }
-    return res.json({
+
+    return res.status(200).json({
       message:
         "If the account can receive verification mail, a new link has been sent.",
     });
@@ -78,6 +115,7 @@ async function resendEmailVerification(req, res, next) {
     return next(error);
   }
 }
+
 
 async function signin(req, res, next) {
   try {
