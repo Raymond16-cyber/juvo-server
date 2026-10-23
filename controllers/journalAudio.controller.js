@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Journal from "../models/Journal.js";
 import cloudinary from "../config/cloudinary.js";
 import audioUpload from "../utils/audioUpload.js";
+import uploadAudio from "../config/uploadAudio.js";
 
 async function uploadBeforeTradingAudioController(req, res, next) {
   let uploadedAudio;
@@ -28,7 +29,7 @@ async function uploadBeforeTradingAudioController(req, res, next) {
     }
 
     // Upload to Cloudinary before saving its metadata.
-    uploadedAudio = await audioUpload(req.file);
+    uploadedAudio = await uploadAudio(req.file);
 
     const previousPublicId = journal.psychology?.beforeTradingAudio?.publicId;
 
@@ -57,6 +58,7 @@ async function uploadBeforeTradingAudioController(req, res, next) {
       },
     });
   } catch (error) {
+    console.error("[Before-trading audio upload failed]:", error);
     // Avoid leaving a newly uploaded asset behind if saving the journal fails.
     if (uploadedAudio?.publicId) {
       try {

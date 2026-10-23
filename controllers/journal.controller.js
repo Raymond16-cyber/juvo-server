@@ -30,7 +30,6 @@ async function exportJournalsController(req, res, next) {
 }
 
 async function getTodayJournalStatusController(req, res, next) {
-  console.log("getting journal status");
   try {
     const userId = req.user.id;
     if (!userId) {
