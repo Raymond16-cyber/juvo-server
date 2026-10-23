@@ -63,6 +63,12 @@ const journalSchema = new mongoose.Schema(
         min: 1,
         max: 10,
       },
+      beforeTradingAudio: {
+        publicId: { type: String },
+        format: { type: String },
+        bytes: { type: Number },
+        duration: { type: Number },
+      },
     },
 
     review: {

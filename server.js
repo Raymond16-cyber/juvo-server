@@ -10,6 +10,10 @@ import { migrateLegacyMetaApi } from "./brokers/metatrader/metatrader.migration.
 import { initializeMetaTraderIndexes } from "./brokers/metatrader/metatrader.initialize.js";
 import { initializeBillingIndexes } from "./billing/billing.initialize.js";
 import { startBillingWorker, stopBillingWorker } from "./services/billing.service.js";
+import {
+  startJournalStreakJob,
+  stopJournalStreakJob,
+} from "./jobs/journalStreak.job.js";
 
 
 
@@ -21,6 +25,7 @@ async function startServer() {
     await migrateLegacyMetaApi();
     await initializeMetaTraderIndexes();
     await initializeBillingIndexes();
+    startJournalStreakJob()
     metatraderRuntime.start();
     startBillingWorker();
     const server = http.createServer(app);
@@ -29,6 +34,24 @@ async function startServer() {
     server.listen(port, () => {
       console.log(`Server running on port ${port}`);
     });
+
+    const requiredCloudinaryEnv = [
+      "CLOUDINARY_CLOUD_NAME",
+      "CLOUDINARY_API_KEY",
+      "CLOUDINARY_API_SECRET",
+    ];
+
+    const missingCloudinaryEnv = requiredCloudinaryEnv.filter(
+      (key) => !process.env[key],
+    );
+
+    if (missingCloudinaryEnv.length > 0) {
+      throw new Error(
+        `Missing Cloudinary environment variables: ${missingCloudinaryEnv.join(", ")}`,
+      );
+    }
+
+    console.log("Cloudinary environment variables are configured.");
 
     cTraderManager.start().catch((error) => {
       console.error("Failed to start cTrader realtime manager:", error);
@@ -42,6 +65,7 @@ async function startServer() {
       server.close();
       metatraderRuntime.stop();
       stopBillingWorker();
+      stopJournalStreakJob()
       process.exit(0);
     };
     process.once("SIGTERM", shutdown);

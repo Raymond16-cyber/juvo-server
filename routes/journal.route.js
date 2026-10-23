@@ -9,9 +9,15 @@ import {
   getTodayJournalStatusController,
   getUserJournalsController,
 } from "../controllers/journal.controller.js";
+import {
+  uploadBeforeTradingAudioController,
+  getBeforeTradingAudioController,
+} from "../controllers/journalAudio.controller.js";
+
 import { requireAuth } from "../middleware/authMiddleware.js";
 import { requireEntitlement } from "../middleware/entitlementMiddleware.js";
 import { ENTITLEMENTS } from "../services/entitlement.service.js";
+import audioUpload from "../utils/audioUpload.js";
 
 const journalRoutes = Router();
 
@@ -21,6 +27,8 @@ journalRoutes.get(
   requireEntitlement(ENTITLEMENTS.DATA_EXPORT),
   exportJournalsController,
 );
+
+
 
 journalRoutes.post("/create-journal", requireAuth, createJournalController);
 journalRoutes.post(
@@ -43,6 +51,18 @@ journalRoutes.get(
   "/get-today-journal-status",
   requireAuth,
   getTodayJournalStatusController,
+);
+journalRoutes.post(
+  "/:journalId/before-trading-audio",
+  requireAuth,
+  audioUpload.single("audio"),
+  uploadBeforeTradingAudioController,
+);
+
+journalRoutes.get(
+  "/:journalId/before-trading-audio",
+  requireAuth,
+  getBeforeTradingAudioController,
 );
 journalRoutes.get("/:journalId", requireAuth, getJournalByIdController);
 

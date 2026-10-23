@@ -19,7 +19,7 @@ function zonedTimeToUtc(
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   });
   const parts = Object.fromEntries(
     formatter
@@ -41,18 +41,53 @@ function zonedTimeToUtc(
 }
 
 function getTodayBounds(timeZone = "UTC") {
-  const today = getZonedDateParts(new Date(), timeZone);
-  console.log(today);
-  return {
-    startOfDay: zonedTimeToUtc(
-      { ...today, hour: 0, minute: 0, second: 0, millisecond: 0 },
-      timeZone,
-    ),
-    endOfDay: zonedTimeToUtc(
-      { ...today, hour: 23, minute: 59, second: 59, millisecond: 999 },
-      timeZone,
-    ),
+  return getLocalDayBounds(timeZone, 0);
+}
+
+function getLocalDayBounds(
+  timeZone = "UTC",
+  dayOffset = 0,
+  referenceDate = new Date(),
+) {
+  const safeTimeZone = isValidTimeZone(timeZone) ? timeZone : "UTC";
+
+  // Get today's calendar date in the user's timezone.
+  const localDate = getZonedDateParts(referenceDate, safeTimeZone);
+
+  // Shift the calendar date, not the timestamp by 24 hours.
+  const shiftedDate = new Date(
+    Date.UTC(localDate.year, localDate.month - 1, localDate.day + dayOffset),
+  );
+
+  const targetDateParts = {
+    year: shiftedDate.getUTCFullYear(),
+    month: shiftedDate.getUTCMonth() + 1,
+    day: shiftedDate.getUTCDate(),
   };
+
+  const startOfDay = zonedTimeToUtc(
+    {
+      ...targetDateParts,
+      hour: 0,
+      minute: 0,
+      second: 0,
+      millisecond: 0,
+    },
+    safeTimeZone,
+  );
+
+  const endOfDay = zonedTimeToUtc(
+    {
+      ...targetDateParts,
+      hour: 23,
+      minute: 59,
+      second: 59,
+      millisecond: 999,
+    },
+    safeTimeZone,
+  );
+
+  return { startOfDay, endOfDay };
 }
 
 function isValidTimeZone(timeZone) {
@@ -105,7 +140,7 @@ function normalizeTimeZone(timeZone) {
     new Intl.DateTimeFormat("en-US", {
       timeZone: timeZone.trim(),
     });
-    console.log("fallback timezone",timeZone)
+    console.log("fallback timezone", timeZone);
     return timeZone.trim();
   } catch {
     return "UTC";
@@ -114,6 +149,7 @@ function normalizeTimeZone(timeZone) {
 
 export {
   getTodayBounds,
+  getLocalDayBounds,
   getUserTimeZone,
   getZonedDateParts,
   zonedTimeToUtc,
