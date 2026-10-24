@@ -73,3 +73,12 @@ export const onBoardingUser = async (req, res, next) => {
     return next(error);
   }
 };
+
+
+export const finishProductTour = async(req,res,next) => {
+  try {
+    const { hasFinished } = req.body
+  } catch (error) {
+    
+  }
+} 

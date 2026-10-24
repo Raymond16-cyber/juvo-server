@@ -1,5 +1,45 @@
 import mongoose from "mongoose";
 
+
+
+const dashboardGuideSchema = new mongoose.Schema(
+  {
+    version: {
+      type: Number,
+      default: 1,
+    },
+
+    dismissedHints: {
+      type: [String],
+      default: [],
+    },
+
+    completedChecklist: {
+      type: [String],
+      default: [],
+    },
+
+    tourCompleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    _id: false,
+  },
+);
+
+
 const userSchema = new mongoose.Schema(
   {
     // Authentication
@@ -266,6 +306,11 @@ const userSchema = new mongoose.Schema(
       completedAt: Date,
     },
 
+    dashboardGuide: {
+      type: dashboardGuideSchema,
+      default: () => ({}),
+    },
+
     // To be cached for performance optimization
     stats: {
       currentJournalStreak: {
@@ -321,6 +366,8 @@ userSchema.set("toJSON", {
     return ret;
   },
 });
+
+
 
 const User = mongoose.model("User", userSchema);
 
