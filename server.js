@@ -25,7 +25,7 @@ async function startServer() {
     await migrateLegacyMetaApi();
     await initializeMetaTraderIndexes();
     await initializeBillingIndexes();
-    startJournalStreakJob()
+    startJournalStreakJob();
     metatraderRuntime.start();
     startBillingWorker();
     const server = http.createServer(app);
@@ -65,19 +65,23 @@ async function startServer() {
       server.close();
       metatraderRuntime.stop();
       stopBillingWorker();
-      stopJournalStreakJob()
+      stopJournalStreakJob();
       process.exit(0);
     };
     process.once("SIGTERM", shutdown);
     process.once("SIGINT", shutdown);
+    // } catch (error) {
+    //   const hiddenMessage = "Check backend configuration and database connectivity.";
+    //   const message = error?.safeConnector
+    //     ? error.message
+    //     : process.env.NODE_ENV === "production"
+    //       ? hiddenMessage
+    //       : error?.message || hiddenMessage;
+    //   console.error("Failed to start server:", message);
+    //   process.exit(1);
+    // }
   } catch (error) {
-    const hiddenMessage = "Check backend configuration and database connectivity.";
-    const message = error?.safeConnector
-      ? error.message
-      : process.env.NODE_ENV === "production"
-        ? hiddenMessage
-        : error?.message || hiddenMessage;
-    console.error("Failed to start server:", message);
+    console.error("Failed to start server:", error?.stack || error);
     process.exit(1);
   }
 }
