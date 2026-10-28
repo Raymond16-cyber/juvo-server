@@ -11,7 +11,10 @@ export default async function connectDb() {
   }
 
   mongoose.set("strictQuery", true);
-  await mongoose.connect(isProduction ? mongoUrl : mongoUri);
+  await mongoose
+    .connect(isProduction ? mongoUrl : mongoUri)
+    .then(() => console.log("Database Connection Successful🍃"))
+    .catch((error) => console.log(error));
 
   try {
     const { default: Journal } = await import("../models/Journal.js");
