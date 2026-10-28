@@ -33,9 +33,11 @@ function sanitizeUser(user) {
     email: json.email,
     avatar: json.avatar || null,
     authProvider: json.authProvider || "local",
+    emailVerified: Boolean(json.security?.emailVerified),
     profile: json.profile,
     preferences: json.preferences,
     subscription: json.subscription,
+    entitlements: json.entitlements,
     stats: json.stats,
     onboarding: json.onboarding,
     createdAt: json.createdAt,
@@ -433,10 +435,17 @@ async function updatePreferencesService(userId, payload = {}) {
   if (theme && ["light", "dark", "system"].includes(theme)) {
     updates["preferences.theme"] = theme;
   }
+  const reportingCurrency = String(payload.reportingCurrency || "").trim();
   if (preferredCurrency) {
     const currency = preferredCurrency.toUpperCase();
     updates["preferences.preferredCurrency"] = currency;
-    updates["preferences.reportingCurrency"] = currency;
+    // Keep reporting currency in sync unless the client sets it explicitly.
+    if (!reportingCurrency) {
+      updates["preferences.reportingCurrency"] = currency;
+    }
+  }
+  if (reportingCurrency) {
+    updates["preferences.reportingCurrency"] = reportingCurrency.toUpperCase();
   }
   if (weekStartsOn && ["sunday", "monday"].includes(weekStartsOn)) {
     updates["preferences.weekStartsOn"] = weekStartsOn;

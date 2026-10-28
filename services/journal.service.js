@@ -11,6 +11,17 @@ import {
   resolveTradeCurrency,
 } from "./currency/currency.utils.js";
 import { userCanUseJuvoAi } from "./entitlement.service.js";
+import { syncAchievementsAfterActivity } from "./achievements/achievement.service.js";
+import {
+  MIN_NOTE_CHARS,
+  getJournalStreakService,
+  recordQualifyingJournalActivity,
+} from "./journalStreak.service.js";
+import {
+  getTodayNoTradeDayService,
+  markNoTradeDaySupersededByTrade,
+} from "./noTradeDay.service.js";
+import { presentTradeForClient } from "./screenshotReview.service.js";
 import {
   applyClosedTradeToAccount,
   attachTradeToActiveAccount,
@@ -28,16 +39,16 @@ const JOURNAL_LIST_SELECT =
   "_id journalDate status tradingAccount trades psychology review discipline ai createdAt updatedAt";
 
 const TRADE_LIST_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source platform brokerMetadata commission swap externalId externalPositionId externalOrderId externalDealId";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source platform brokerMetadata commission swap externalId externalPositionId externalOrderId externalDealId screenshotAnalysis";
 
 const ACCOUNT_LIST_SELECT =
   "accountName accountNumber broker accountType currency accountCurrency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 function populateTrades(query, includeExportFields = false) {
   return query.populate({
     path: "trades",
-    select: includeExportFields ? `${TRADE_LIST_SELECT} pips screenshots` : TRADE_LIST_SELECT,
+    select: includeExportFields
+      ? `${TRADE_LIST_SELECT} pips screenshots`
+      : TRADE_LIST_SELECT,
     populate: {
       path: "tradingAccount",
       select: "accountName broker currency accountCurrency status isActive",
@@ -94,9 +105,12 @@ function summarizeTrades(trades = []) {
 }
 
 function withJournalStats(journal) {
-  const trades = journal.trades || [];
+  const trades = (journal.trades || []).map((trade) =>
+    presentTradeForClient(trade),
+  );
   return {
     ...journal,
+    trades,
     ...summarizeTrades(trades),
   };
 }
@@ -149,30 +163,6 @@ async function summarizeTradesForReporting(journal, user) {
   };
 }
 
-async function buildNextJournalStreak(userId, journalDate) {
-  const [user, previousJournal] = await Promise.all([
-    User.findById(userId).select("stats.currentJournalStreak").lean(),
-    Journal.findOne({
-      user: userId,
-      journalDate: { $lt: journalDate },
-    })
-      .select("journalDate")
-      .sort({ journalDate: -1 })
-      .lean(),
-  ]);
-
-  const previousDate = previousJournal?.journalDate
-    ? new Date(previousJournal.journalDate)
-    : null;
-  const diffDays = previousDate
-    ? Math.round((journalDate.getTime() - previousDate.getTime()) / MS_PER_DAY)
-    : null;
-
-  return diffDays === 1
-    ? Number(user?.stats?.currentJournalStreak || 0) + 1
-    : 1;
-}
-
 async function populateJournal(journalId) {
   return populateTrades(
     Journal.findById(journalId)
@@ -182,7 +172,7 @@ async function populateJournal(journalId) {
 }
 
 async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
-  const [user, journal] = await Promise.all([
+  const [user, journal, streakResult, noTradeResult] = await Promise.all([
     User.findById(userId).select("preferences reportingCurrency").lean(),
     populateTrades(
       Journal.findOne({
@@ -192,13 +182,35 @@ async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
         .select("_id journalDate status tradingAccount trades psychology createdAt updatedAt")
         .populate("tradingAccount", ACCOUNT_LIST_SELECT),
     ).lean(),
+    getJournalStreakService(userId),
+    getTodayNoTradeDayService(userId),
   ]);
+
+  const noTradeDay = noTradeResult.success ? noTradeResult.data?.entry : null;
+  const tradeCount = journal?.trades?.length || 0;
+  let journalingStatus = "not_started";
+  if (journal?.status === "Completed" && tradeCount === 0 && noTradeDay) {
+    journalingStatus = "no_trade_day";
+  } else if (journal?.status === "Completed") {
+    journalingStatus = "review_completed";
+  } else if (tradeCount > 0) {
+    journalingStatus = "trade_recorded";
+  } else if (noTradeDay && !noTradeDay.supersededByTrade) {
+    journalingStatus = "no_trade_day";
+  } else if (journal?.psychology?.beforeTrading) {
+    journalingStatus = "preparation_recorded";
+  } else if (journal) {
+    journalingStatus = "day_started";
+  }
 
   return {
     success: true,
     data: {
       hasJournalToday: Boolean(journal),
       journal: journal ? await summarizeTradesForReporting(journal, user) : null,
+      streak: streakResult.success ? streakResult.data : null,
+      noTradeDay,
+      journalingStatus,
     },
   };
 }
@@ -284,15 +296,17 @@ async function createJournalService(data, userId, journalDate) {
       journalDate,
     });
 
-    const currentJournalStreak = await buildNextJournalStreak(
-      userId,
-      journalDate,
-    );
     await User.findByIdAndUpdate(userId, {
       $inc: { "stats.totalJournals": 1 },
-      $set: { "stats.currentJournalStreak": currentJournalStreak },
-      $max: { "stats.longestJournalStreak": currentJournalStreak },
     });
+
+    // Empty "start day" shells do not earn a streak. A meaningful prep note does.
+    const beforeTrading = result.data?.psychology?.beforeTrading || "";
+    let newlyEarned = [];
+    if (String(beforeTrading).trim().length >= MIN_NOTE_CHARS) {
+      await recordQualifyingJournalActivity(userId, new Date());
+      newlyEarned = (await syncAchievementsAfterActivity(userId)).newlyEarned;
+    }
 
     const populatedJournal = await populateJournal(journal._id);
 
@@ -302,6 +316,7 @@ async function createJournalService(data, userId, journalDate) {
         ...populatedJournal,
         tradesCount: 0,
       },
+      newlyEarned,
     };
   } catch (err) {
     if (err.code === 11000) {
@@ -378,10 +393,18 @@ async function createJournalTradeService(journalId, data, userId) {
     $inc: { "stats.totalTrades": 1 },
   });
 
+  // Saving a real trade is meaningful journaling for the day.
+  const activityAt = new Date();
+  await recordQualifyingJournalActivity(userId, activityAt);
+  // If the trader earlier declared a no-trade day, keep the record but mark it superseded.
+  await markNoTradeDaySupersededByTrade(userId, activityAt);
+  const { newlyEarned } = await syncAchievementsAfterActivity(userId);
+
   return {
     success: true,
     data: trade,
     attachedToAccount: Boolean(tradingAccount.isActive),
+    newlyEarned,
   };
 }
 
@@ -536,6 +559,10 @@ async function completeJournalService(journalId, data, userId) {
   journal.status = "Completed";
   await journal.save();
 
+  // Completing the day review earns the streak even on a deliberate no-trade day.
+  await recordQualifyingJournalActivity(userId, new Date());
+  const { newlyEarned } = await syncAchievementsAfterActivity(userId);
+
   const populated = await populateJournal(journalId);
   let analysis = null;
 
@@ -549,6 +576,7 @@ async function completeJournalService(journalId, data, userId) {
           ...withJournalStats(refreshed),
           analysis,
         },
+        newlyEarned,
       };
     }
 
@@ -592,6 +620,7 @@ async function completeJournalService(journalId, data, userId) {
       ...withJournalStats(refreshed),
       analysis,
     },
+    newlyEarned,
   };
 }
 

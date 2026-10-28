@@ -126,6 +126,39 @@ const tradeSchema = new mongoose.Schema(
       },
     ],
 
+    screenshotAnalysis: {
+      publicId: {
+        type: String,
+        trim: true,
+      },
+      mimeType: {
+        type: String,
+        trim: true,
+      },
+      bytes: Number,
+      status: {
+        type: String,
+        enum: ["processing", "ready", "failed"],
+      },
+      model: {
+        type: String,
+        trim: true,
+      },
+      startedAt: Date,
+      analyzedAt: Date,
+      review: {
+        chartObservations: String,
+        marketStructure: String,
+        setupAnalysis: String,
+        entryExitReview: String,
+        riskManagement: String,
+        whatWentWell: String,
+        whatCouldBeImproved: String,
+        keyLesson: String,
+        confidenceAndLimitations: String,
+      },
+    },
+
     notes: String,
 
     source: {

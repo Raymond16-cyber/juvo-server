@@ -17,10 +17,16 @@ import Subscription from "../models/Subscription.js";
 import User from "../models/User.js";
 
 const paystackEnv = {
+  PAYSTACK_MODE: "test",
   PAYSTACK_SECRET_KEY: "sk_test_abcdefghijklmnopqrstuvwxyz123456",
+  PAYSTACK_TEST_SECRET_KEY: "sk_test_abcdefghijklmnopqrstuvwxyz123456",
+  PAYSTACK_LIVE_SECRET_KEY: "",
   PAYSTACK_BILLING_CURRENCY: "NGN",
   PAYSTACK_PRO_MONTHLY_PLAN_CODE: "PLN_pro_monthly",
   PAYSTACK_SUPER_MONTHLY_PLAN_CODE: "PLN_super_monthly",
+  // Prefer these in test mode; pin them so a developer .env cannot leak in.
+  PAYSTACK_TEST_PRO_MONTHLY_PLAN_CODE: "PLN_pro_monthly",
+  PAYSTACK_TEST_SUPER_MONTHLY_PLAN_CODE: "PLN_super_monthly",
   PAYSTACK_CALLBACK_URL: "http://localhost:3000/home/general/subscriptions",
 };
 

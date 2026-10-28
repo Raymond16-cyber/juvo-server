@@ -12,9 +12,17 @@ import {
 import {
   JUVO_CHAT_SYSTEM_INSTRUCTIONS,
   JUVO_JOURNAL_ANALYSIS_INSTRUCTIONS,
+  JUVO_SCREENSHOT_REVIEW_INSTRUCTIONS,
 } from "../prompts/aiPrompts.js";
+import {
+  USER_FACING_UNAVAILABLE,
+  sanitizeModelIdentity,
+  toUserFacingAiError,
+} from "../utils/sanitizeModelIdentity.js";
+import { normalizeScreenshotReview } from "../utils/screenshotImage.js";
 
 const MODEL = "gemini-3.5-flash-lite";
+const SCREENSHOT_ANALYSIS_TIMEOUT_MS = 55_000;
 
 function readApiKey() {
   const raw = process.env.AI_API_KEY || "";
@@ -48,11 +56,16 @@ function readGeminiText(response) {
 }
 
 function geminiErrorMessage(error) {
+  // Server logs only — may include provider details.
   return (
     error?.error?.message ||
     error?.message ||
-    "Unable to reach Gemini right now."
+    "Juvo AI upstream request failed."
   );
+}
+
+function userFacingAiFailure(error, fallback = USER_FACING_UNAVAILABLE) {
+  return toUserFacingAiError(error, fallback);
 }
 
 function parseJsonText(text) {
@@ -108,7 +121,7 @@ async function completeWithGemini(messages) {
     return {
       success: false,
       statusCode: 503,
-      message: "Juvo AI is not configured. Add AI_API_KEY on the server.",
+      message: "Juvo AI is temporarily unavailable.",
     };
   }
 
@@ -131,7 +144,7 @@ async function completeWithGemini(messages) {
       },
     });
 
-    const text = readGeminiText(response);
+    const text = sanitizeModelIdentity(readGeminiText(response));
 
     if (!text) {
       return {
@@ -146,11 +159,11 @@ async function completeWithGemini(messages) {
       text,
     };
   } catch (error) {
-    console.error("Juvo Gemini error:", geminiErrorMessage(error));
+    console.error("Juvo AI upstream error:", geminiErrorMessage(error));
     return {
       success: false,
       statusCode: 502,
-      message: geminiErrorMessage(error),
+      message: userFacingAiFailure(error),
     };
   }
 }
@@ -343,7 +356,107 @@ async function deleteConversationsService(conversationIds, userId) {
   return { success: true, deletedCount: result.deletedCount || 0 };
 }
 
-async function chatWithJuvoService({ userId, conversationId, message }) {
+function buildScreenshotTradePrompt(tradeContext = {}) {
+  return [
+    "Review this trading chart screenshot for a closed or closing trade.",
+    "Trade context JSON follows. Omit nothing that is present, and do not invent missing values.",
+    JSON.stringify(tradeContext),
+  ].join("\n\n");
+}
+
+async function analyzeTradeScreenshotWithAi({
+  imageBuffer,
+  mimeType,
+  tradeContext,
+}) {
+  const client = getClient();
+
+  if (!client) {
+    return {
+      success: false,
+      statusCode: 503,
+      message: "Juvo AI is temporarily unavailable.",
+    };
+  }
+
+  if (!Buffer.isBuffer(imageBuffer) || !imageBuffer.length) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Choose a chart screenshot to review.",
+    };
+  }
+
+  try {
+    const response = await Promise.race([
+      client.models.generateContent({
+        model: MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: buildScreenshotTradePrompt(tradeContext) },
+              {
+                inlineData: {
+                  mimeType,
+                  data: imageBuffer.toString("base64"),
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: JUVO_SCREENSHOT_REVIEW_INSTRUCTIONS,
+          responseMimeType: "application/json",
+        },
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("Screenshot analysis timed out. Try again shortly."));
+        }, SCREENSHOT_ANALYSIS_TIMEOUT_MS);
+      }),
+    ]);
+
+    const text = sanitizeModelIdentity(readGeminiText(response));
+    if (!text) {
+      return {
+        success: false,
+        statusCode: 502,
+        message: "Juvo AI returned an empty screenshot review.",
+      };
+    }
+
+    const parsed = parseJsonText(text);
+    const review = normalizeScreenshotReview(parsed);
+    if (!review) {
+      return {
+        success: false,
+        statusCode: 502,
+        message: "Juvo AI returned an incomplete screenshot review.",
+      };
+    }
+
+    return {
+      success: true,
+      review,
+      rawText: text,
+    };
+  } catch (error) {
+    console.error("Juvo screenshot AI error:", geminiErrorMessage(error));
+    return {
+      success: false,
+      statusCode: 502,
+      message: userFacingAiFailure(error),
+    };
+  }
+}
+
+async function chatWithJuvoService({
+  userId,
+  conversationId,
+  message,
+  journalIds,
+}) {
   const content = String(message || "").trim();
 
   if (!content) {
@@ -372,7 +485,72 @@ async function chatWithJuvoService({ userId, conversationId, message }) {
     });
   }
 
-  const context = await buildTraderContext(userId);
+  const selectedIds = Array.isArray(journalIds)
+    ? journalIds
+        .map((id) => String(id || "").trim())
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .slice(0, 12)
+    : [];
+
+  let context;
+  if (selectedIds.length) {
+    const journals = await Journal.find({
+      user: userId,
+      _id: { $in: selectedIds },
+    })
+      .select(
+        "journalDate status psychology review discipline ai trades totalProfitLoss",
+      )
+      .populate(
+        "trades",
+        "symbol instrument direction status profitLoss profitLossCurrency plannedRR achievedRR session notes openedAt closedAt tradingAccount",
+      )
+      .populate("tradingAccount", "currency accountCurrency")
+      .lean();
+
+    const user = await User.findById(userId)
+      .select("fullName profile preferences stats subscription")
+      .lean();
+    const reportingCurrency = resolveReportingCurrency(user);
+    context = {
+      mode: "ask_your_journal",
+      trader: {
+        name: user?.fullName,
+        experienceLevel: user?.profile?.experienceLevel,
+        tradingStyle: user?.profile?.tradingStyle,
+        timezone: user?.profile?.timezone,
+        reportingCurrency,
+      },
+      selectedJournals: journals.map((journal) => ({
+        id: String(journal._id),
+        date: journal.journalDate,
+        status: journal.status,
+        psychology: journal.psychology,
+        review: journal.review,
+        discipline: journal.discipline,
+        ai: journal.ai,
+        trades: (journal.trades || []).map((trade) => ({
+          symbol: trade.symbol,
+          instrument: trade.instrument,
+          direction: trade.direction,
+          status: trade.status,
+          profitLoss: trade.profitLoss,
+          profitLossCurrency: resolveTradeCurrency(
+            trade,
+            journal.tradingAccount,
+            reportingCurrency,
+          ),
+          plannedRR: trade.plannedRR,
+          achievedRR: trade.achievedRR,
+          session: trade.session,
+          notes: trade.notes,
+        })),
+      })),
+    };
+  } else {
+    context = await buildTraderContext(userId);
+  }
+
   const history = (conversation.messages || []).slice(-16).map((item) => ({
     role: item.role,
     content: item.content,
@@ -392,11 +570,12 @@ async function chatWithJuvoService({ userId, conversationId, message }) {
     return result;
   }
 
+  const reply = sanitizeModelIdentity(result.text);
   const now = new Date();
   conversation.messages.push({ role: "user", content, createdAt: now });
   conversation.messages.push({
     role: "assistant",
-    content: result.text,
+    content: reply,
     createdAt: now,
   });
   conversation.lastMessageAt = now;
@@ -410,16 +589,22 @@ async function chatWithJuvoService({ userId, conversationId, message }) {
     data: {
       conversationId: conversation._id,
       title: conversation.title,
-      reply: result.text,
+      reply,
       messages: conversation.messages,
     },
   };
 }
 
 export {
+  MODEL as JUVO_AI_MODEL,
   analyzeJournalWithAi,
+  analyzeTradeScreenshotWithAi,
+  buildScreenshotTradePrompt,
   chatWithJuvoService,
+  completeWithGemini,
   deleteConversationsService,
   getConversationService,
   listConversationsService,
+  parseJsonText,
+  sanitizeModelIdentity,
 };

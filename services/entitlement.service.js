@@ -7,10 +7,27 @@ const ENTITLEMENTS = Object.freeze({
   BEHAVIORAL_INSIGHTS: "behavioral_insights",
   JUVO_AI: "juvo_ai",
   DATA_EXPORT: "data_export",
+  SMART_JOURNAL_INTERVIEWER: "smart_journal_interviewer",
+  PLAN_COMPLIANCE_CHECK: "plan_compliance_check",
+  AI_PERIOD_REVIEW: "ai_period_review",
+  ASK_YOUR_JOURNAL: "ask_your_journal",
+  EXPLAIN_METRICS: "explain_metrics",
+  GOAL_COACH: "goal_coach",
+  CONTEXTUAL_AI_CHECKINS: "contextual_ai_checkins",
 });
 
+const TRIAL_ENTITLEMENTS = Object.freeze([
+  ENTITLEMENTS.JUVO_AI,
+  ENTITLEMENTS.ASK_YOUR_JOURNAL,
+  ENTITLEMENTS.SMART_JOURNAL_INTERVIEWER,
+]);
+
 const PLAN_ENTITLEMENTS = Object.freeze({
-  free: [ENTITLEMENTS.BASIC_JOURNAL, ENTITLEMENTS.BASIC_ANALYTICS],
+  free: [
+    ENTITLEMENTS.BASIC_JOURNAL,
+    ENTITLEMENTS.BASIC_ANALYTICS,
+    ENTITLEMENTS.SMART_JOURNAL_INTERVIEWER,
+  ],
   pro: [
     ENTITLEMENTS.BASIC_JOURNAL,
     ENTITLEMENTS.BASIC_ANALYTICS,
@@ -18,6 +35,11 @@ const PLAN_ENTITLEMENTS = Object.freeze({
     ENTITLEMENTS.BEHAVIORAL_INSIGHTS,
     ENTITLEMENTS.JUVO_AI,
     ENTITLEMENTS.DATA_EXPORT,
+    ENTITLEMENTS.SMART_JOURNAL_INTERVIEWER,
+    ENTITLEMENTS.PLAN_COMPLIANCE_CHECK,
+    ENTITLEMENTS.AI_PERIOD_REVIEW,
+    ENTITLEMENTS.ASK_YOUR_JOURNAL,
+    ENTITLEMENTS.EXPLAIN_METRICS,
   ],
   super: [
     ENTITLEMENTS.BASIC_JOURNAL,
@@ -26,6 +48,13 @@ const PLAN_ENTITLEMENTS = Object.freeze({
     ENTITLEMENTS.BEHAVIORAL_INSIGHTS,
     ENTITLEMENTS.JUVO_AI,
     ENTITLEMENTS.DATA_EXPORT,
+    ENTITLEMENTS.SMART_JOURNAL_INTERVIEWER,
+    ENTITLEMENTS.PLAN_COMPLIANCE_CHECK,
+    ENTITLEMENTS.AI_PERIOD_REVIEW,
+    ENTITLEMENTS.ASK_YOUR_JOURNAL,
+    ENTITLEMENTS.EXPLAIN_METRICS,
+    ENTITLEMENTS.GOAL_COACH,
+    ENTITLEMENTS.CONTEXTUAL_AI_CHECKINS,
   ],
   // Future family plans should grant feature access here without sharing a
   // member's private journals, trades, broker tokens, or AI conversation data.
@@ -35,8 +64,24 @@ const PLAN_ENTITLEMENTS = Object.freeze({
     ENTITLEMENTS.ADVANCED_ANALYTICS,
     ENTITLEMENTS.BEHAVIORAL_INSIGHTS,
     ENTITLEMENTS.JUVO_AI,
+    ENTITLEMENTS.SMART_JOURNAL_INTERVIEWER,
+    ENTITLEMENTS.PLAN_COMPLIANCE_CHECK,
+    ENTITLEMENTS.AI_PERIOD_REVIEW,
+    ENTITLEMENTS.ASK_YOUR_JOURNAL,
+    ENTITLEMENTS.EXPLAIN_METRICS,
   ],
 });
+
+const AI_FEATURE_KEYS = Object.freeze([
+  ENTITLEMENTS.JUVO_AI,
+  ENTITLEMENTS.SMART_JOURNAL_INTERVIEWER,
+  ENTITLEMENTS.PLAN_COMPLIANCE_CHECK,
+  ENTITLEMENTS.AI_PERIOD_REVIEW,
+  ENTITLEMENTS.ASK_YOUR_JOURNAL,
+  ENTITLEMENTS.EXPLAIN_METRICS,
+  ENTITLEMENTS.GOAL_COACH,
+  ENTITLEMENTS.CONTEXTUAL_AI_CHECKINS,
+]);
 
 const JUVO_AI_TRIAL_DAYS = 3;
 const JUVO_AI_TRIAL_MS = JUVO_AI_TRIAL_DAYS * 24 * 60 * 60 * 1000;
@@ -98,12 +143,15 @@ function hasPlanEntitlement(user, entitlement, now = new Date()) {
   );
 }
 
+function hasTrialEntitlement(entitlement, trial) {
+  return trial.status === "active" && TRIAL_ENTITLEMENTS.includes(entitlement);
+}
+
 function getFeatureAccess(user, entitlement, now = new Date()) {
   const plan = normalizePlan(user?.subscription?.plan);
   const trial = getAiTrial(user, now);
   const hasSubscriptionAccess = hasPlanEntitlement(user, entitlement, now);
-  const hasTrialAccess =
-    entitlement === ENTITLEMENTS.JUVO_AI && trial.status === "active";
+  const hasTrialAccess = hasTrialEntitlement(entitlement, trial);
 
   return {
     feature: entitlement,
@@ -171,10 +219,21 @@ async function userCanUseJuvoAi(userId) {
   return Boolean(access?.hasAccess);
 }
 
+function buildAiFeaturesAccessMap(user, now = new Date()) {
+  const features = {};
+  for (const key of AI_FEATURE_KEYS) {
+    features[key] = getFeatureAccess(user, key, now);
+  }
+  return features;
+}
+
 export {
+  AI_FEATURE_KEYS,
   ENTITLEMENTS,
   JUVO_AI_ACCESS_REQUIRED,
   PLAN_ENTITLEMENTS,
+  TRIAL_ENTITLEMENTS,
+  buildAiFeaturesAccessMap,
   getAiTrial,
   getFeatureAccess,
   getPlanEntitlements,

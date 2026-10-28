@@ -115,6 +115,12 @@ const journalSchema = new mongoose.Schema(
       feedback: String,
 
       summary: String,
+
+      interviewer: {
+        questions: [String],
+        contentHash: String,
+        generatedAt: Date,
+      },
     },
   },
   {

@@ -28,3 +28,39 @@ export const verifyOtpVerificationCodeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const screenshotReviewLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator(req) {
+    return String(req.user?.id || req.user?._id || req.ip || "anonymous");
+  },
+  validate: {
+    keyGeneratorIpFallback: false,
+  },
+  message: {
+    success: false,
+    message:
+      "Too many screenshot reviews. Please wait a few minutes before trying again.",
+  },
+});
+
+export const transcriptionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator(req) {
+    return String(req.user?.id || req.user?._id || req.ip || "anonymous");
+  },
+  validate: {
+    keyGeneratorIpFallback: false,
+  },
+  message: {
+    success: false,
+    message:
+      "Too many voice transcriptions. Please wait a few minutes before trying again.",
+  },
+});

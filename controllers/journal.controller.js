@@ -7,6 +7,7 @@ import {
   getTodayJournalStatusService,
   getUserJournalsService,
 } from "../services/journal.service.js";
+import { getJournalStreakService } from "../services/journalStreak.service.js";
 import { getTodayBounds, getUserTimeZone } from "../utils/timezone.js";
 import { resolveReportingCurrency } from "../services/currency/currency.utils.js";
 
@@ -140,6 +141,7 @@ async function createJournalController(req, res, next) {
           date: startOfDay.toISOString(),
           timeZone,
         },
+        newlyEarned: createJournalResult.newlyEarned || [],
       });
     }
 
@@ -176,6 +178,7 @@ async function createJournalTradeController(req, res, next) {
           : "Trade created successfully.",
         data: createTradeResult.data,
         attachedToAccount: Boolean(createTradeResult.attachedToAccount),
+        newlyEarned: createTradeResult.newlyEarned || [],
       });
     }
 
@@ -241,6 +244,25 @@ async function completeJournalController(req, res, next) {
     return res.status(200).json({
       message: "Journal completed successfully.",
       data: result.data,
+      newlyEarned: result.newlyEarned || [],
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getJournalStreakController(req, res, next) {
+  try {
+    const result = await getJournalStreakService(req.user.id);
+    if (!result.success) {
+      return res
+        .status(result.statusCode || 400)
+        .json({ message: result.message });
+    }
+
+    return res.status(200).json({
+      message: "Journal streak retrieved successfully.",
+      data: result.data,
     });
   } catch (err) {
     next(err);
@@ -254,6 +276,7 @@ export {
   createJournalController,
   createJournalTradeController,
   getJournalByIdController,
+  getJournalStreakController,
   getTodayJournalStatusController,
   getUserJournalsController,
 };

@@ -66,8 +66,16 @@ const subscriptionSchema = new mongoose.Schema(
 );
 
 subscriptionSchema.index(
-  { provider: 1, paystackSubscriptionCode: 1 },
-  { unique: true, sparse: true },
+  {
+    provider: 1,
+    paystackSubscriptionCode: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paystackSubscriptionCode: { $type: "string" },
+    },
+  },
 );
 subscriptionSchema.index({ userId: 1, provider: 1, status: 1, updatedAt: -1 });
 

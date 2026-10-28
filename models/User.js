@@ -132,6 +132,18 @@ const userSchema = new mongoose.Schema(
           ],
         },
       ],
+
+      // Up to three earned achievement ids shown on the user's own profile.
+      featuredAchievements: {
+        type: [String],
+        default: [],
+        validate: {
+          validator(value) {
+            return !Array.isArray(value) || value.length <= 3;
+          },
+          message: "You can feature up to three achievements.",
+        },
+      },
     },
 
     // Preferences
@@ -174,6 +186,23 @@ const userSchema = new mongoose.Schema(
         pushToken: {
           type: String,
           default: null,
+        },
+      },
+
+      aiCheckins: {
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        lastSentAt: {
+          type: Date,
+          default: null,
+        },
+        cooldownHours: {
+          type: Number,
+          default: 24,
+          min: 1,
+          max: 168,
         },
       },
     },
@@ -321,6 +350,17 @@ const userSchema = new mongoose.Schema(
       longestJournalStreak: {
         type: Number,
         default: 0,
+      },
+
+      lastQualifyingJournalDayKey: {
+        type: String,
+        default: null,
+        trim: true,
+      },
+
+      lastQualifyingJournalAt: {
+        type: Date,
+        default: null,
       },
 
       totalTrades: {

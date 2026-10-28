@@ -19,15 +19,15 @@ async function ensureSparseUniqueIndex(model, name, key) {
   await model.collection.createIndex(key, { name, unique: true, sparse: true });
 }
 
+
 export async function initializeBillingIndexes() {
-  await ensureSparseUniqueIndex(
-    Subscription,
-    "provider_1_paystackSubscriptionCode_1",
-    { provider: 1, paystackSubscriptionCode: 1 },
-  );
+  // Keep the sparse unique index for Paystack transaction IDs.
   await ensureSparseUniqueIndex(Payment, "paystackTransactionId_1", {
     paystackTransactionId: 1,
   });
+
+  // Create indexes declared in each model's schema.
+  // Subscription's partial unique index is defined in Subscription.js.
   for (const model of [
     Subscription,
     Payment,
@@ -35,6 +35,8 @@ export async function initializeBillingIndexes() {
     WaitlistInvitation,
     Waitlist,
     WaitlistCampaignSend,
-  ])
+  ]) {
     await model.createIndexes();
+  }
 }
+

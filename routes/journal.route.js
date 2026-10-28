@@ -6,6 +6,7 @@ import {
   createJournalController,
   createJournalTradeController,
   getJournalByIdController,
+  getJournalStreakController,
   getTodayJournalStatusController,
   getUserJournalsController,
 } from "../controllers/journal.controller.js";
@@ -13,13 +14,24 @@ import {
   uploadBeforeTradingAudioController,
   getBeforeTradingAudioController,
 } from "../controllers/journalAudio.controller.js";
+import {
+  analyzeTradeScreenshotController,
+  getTradeScreenshotReviewController,
+} from "../controllers/screenshotReview.controller.js";
+import {
+  getTodayNoTradeDayController,
+  upsertNoTradeDayController,
+} from "../controllers/noTradeDay.controller.js";
 
 import { requireAuth } from "../middleware/authMiddleware.js";
 import { requireEntitlement } from "../middleware/entitlementMiddleware.js";
 import { ENTITLEMENTS } from "../services/entitlement.service.js";
 import audioUpload from "../utils/audioUpload.js";
+import { handleScreenshotUpload } from "../utils/imageUpload.js";
+import { screenshotReviewLimiter } from "../utils/rateLimit.js";
 
 const journalRoutes = Router();
+const requireJuvoAi = requireEntitlement(ENTITLEMENTS.JUVO_AI);
 
 journalRoutes.get(
   "/export",
@@ -41,6 +53,19 @@ journalRoutes.patch(
   requireAuth,
   closeJournalTradeController,
 );
+journalRoutes.post(
+  "/:journalId/trades/:tradeId/screenshot-review",
+  requireAuth,
+  requireJuvoAi,
+  screenshotReviewLimiter,
+  handleScreenshotUpload,
+  analyzeTradeScreenshotController,
+);
+journalRoutes.get(
+  "/:journalId/trades/:tradeId/screenshot-review",
+  requireAuth,
+  getTradeScreenshotReviewController,
+);
 journalRoutes.patch(
   "/:journalId/complete",
   requireAuth,
@@ -52,6 +77,10 @@ journalRoutes.get(
   requireAuth,
   getTodayJournalStatusController,
 );
+journalRoutes.get("/streak", requireAuth, getJournalStreakController);
+journalRoutes.get("/no-trade-day/today", requireAuth, getTodayNoTradeDayController);
+journalRoutes.post("/no-trade-day", requireAuth, upsertNoTradeDayController);
+journalRoutes.patch("/no-trade-day", requireAuth, upsertNoTradeDayController);
 journalRoutes.post(
   "/:journalId/before-trading-audio",
   requireAuth,
