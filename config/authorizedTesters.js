@@ -13,6 +13,7 @@ const AUTHORIZED_TESTER_EMAILS = [
   "femisorofolapomile@gmail.com",
   "chibukeemmanuel87@gmail.com",
   "papiloprince043@gmail.com",
+  "uchennaraymond74@gmail.com"
 ];
 
 const AUTHORIZED_TESTER_CODES = [
