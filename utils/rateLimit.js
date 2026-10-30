@@ -65,13 +65,3 @@ export const transcriptionLimiter = rateLimit({
   },
 });
 
-export const betaCodeLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many tester code attempts. Please try again later.",
-  },
-});

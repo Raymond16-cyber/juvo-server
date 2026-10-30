@@ -36,8 +36,6 @@ export async function createUser(userData) {
     providerId: userData.providerId || null,
     password: userData.password || null,
     pushToken: userData.pushToken || null,
-    role: userData.role || "user",
-    betaAccess: userData.betaAccess || undefined,
     security: userData.security,
   });
 

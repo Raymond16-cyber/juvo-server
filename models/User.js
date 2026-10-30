@@ -80,42 +80,6 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Authorization role — admins bypass private beta restrictions.
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-      index: true,
-    },
-
-    // Private beta tester window (separate from waitlist invitations).
-    betaAccess: {
-      status: {
-        type: String,
-        enum: ["none", "active", "expired", "revoked"],
-        default: "none",
-        index: true,
-      },
-      activatedAt: {
-        type: Date,
-        default: null,
-      },
-      expiresAt: {
-        type: Date,
-        default: null,
-        index: true,
-      },
-      grantedAt: {
-        type: Date,
-        default: null,
-      },
-      codeId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "BetaTesterCode",
-        default: null,
-      },
-    },
-
     // Profile
     profile: {
       country: {

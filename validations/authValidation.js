@@ -8,7 +8,6 @@ function validateRegisterInput(payload) {
   const email = (payload.email || "").trim().toLowerCase();
   const password = payload.password || "";
   const pushToken = (payload.pushToken || "").trim();
-  const testerCode = (payload.testerCode || payload.betaCode || "").trim();
 
   if (!fullName) errors.push("Full name is required.");
   if (!email) errors.push("Email is required.");
@@ -20,7 +19,7 @@ function validateRegisterInput(payload) {
   return {
     isValid: errors.length === 0,
     errors,
-    data: { fullName, email, password, pushToken, testerCode },
+    data: { fullName, email, password, pushToken },
   };
 }
 
@@ -28,7 +27,6 @@ function validateLoginInput(payload) {
   const errors = [];
   const email = (payload.email || "").trim().toLowerCase();
   const password = payload.password || "";
-  const testerCode = (payload.testerCode || payload.betaCode || "").trim();
 
   if (!email) errors.push("Email is required.");
   if (email && !validateEmail(email)) errors.push("Email is invalid.");
@@ -37,7 +35,7 @@ function validateLoginInput(payload) {
   return {
     isValid: errors.length === 0,
     errors,
-    data: { email, password, testerCode },
+    data: { email, password },
   };
 }
 
@@ -47,14 +45,13 @@ function validateAppleAuthInput(payload) {
   const email = (payload.email || "").trim().toLowerCase();
   const fullName = (payload.fullName || "").trim();
   const pushToken = (payload.pushToken || "").trim();
-  const testerCode = (payload.testerCode || payload.betaCode || "").trim();
 
   if (!appleUserId) errors.push("Apple user ID is required.");
 
   return {
     isValid: errors.length === 0,
     errors,
-    data: { appleUserId, email, fullName, pushToken, testerCode },
+    data: { appleUserId, email, fullName, pushToken },
   };
 }
 

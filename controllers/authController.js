@@ -16,10 +16,6 @@ import {
 } from "../utils/email.js";
 import { updateUser } from "../repositories/userRepository.js";
 import User from "../models/User.js";
-import {
-  getBetaModePublicStatus,
-  presentBetaAccess,
-} from "../middleware/authMiddleware.js";
 
 async function signup(req, res, next) {
   try {
@@ -41,18 +37,10 @@ async function signup(req, res, next) {
       user: result.user,
       token: result.token,
       verificationSent,
-      betaAccess: result.betaAccess || result.user.betaAccess,
     });
   } catch (error) {
     return next(error);
   }
-}
-
-async function getBetaStatus(req, res) {
-  return res.status(200).json({
-    message: "Beta access mode status.",
-    data: getBetaModePublicStatus(),
-  });
 }
 
 
@@ -162,7 +150,6 @@ async function signin(req, res, next) {
       message: "Login successful.",
       user: result.user,
       token: result.token,
-      betaAccess: result.betaAccess || result.user.betaAccess,
     });
   } catch (error) {
     return next(error);
@@ -187,10 +174,8 @@ async function appleAuth(req, res, next) {
 }
 
 async function me(req, res) {
-  const user = sanitizeUser(req.user);
   return res.status(200).json({
-    user,
-    betaAccess: req.betaAccess || presentBetaAccess(req.user),
+    user: sanitizeUser(req.user),
   });
 }
 
@@ -335,5 +320,4 @@ export {
   resendEmailVerification,
   resetPassword,
   editUserInfo,
-  getBetaStatus,
 };

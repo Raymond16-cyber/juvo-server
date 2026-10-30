@@ -11,7 +11,6 @@ import {
   findUserByProviderId,
   updateUser,
 } from "../repositories/userRepository.js";
-import User from "../models/User.js";
 import {
   validateRegisterInput,
   validateLoginInput,
@@ -24,19 +23,9 @@ import { sendWelcomeNotification } from "../services/notificationService.js";
 import { randomUUID } from "node:crypto";
 import { normalizeTimeZone } from "../utils/timezone.js";
 import { hashStarEmail } from "../utils/email.js";
-import {
-  activateAuthorizedEmailForUser,
-  evaluateUserBetaAccess,
-  isBetaAccessModeEnabled,
-  presentBetaAccess,
-  redeemTesterCodeForUser,
-  syncExpiredBetaStatus,
-} from "./betaAccess.service.js";
-import { isAuthorizedTesterEmail } from "../config/authorizedTesters.js";
 
 function sanitizeUser(user) {
   const json = typeof user.toJSON === "function" ? user.toJSON() : user;
-  const betaAccess = presentBetaAccess(json);
 
   return {
     id: json.id || json._id,
@@ -44,7 +33,6 @@ function sanitizeUser(user) {
     email: json.email,
     avatar: json.avatar || null,
     authProvider: json.authProvider || "local",
-    role: json.role || "user",
     emailVerified: Boolean(json.security?.emailVerified),
     profile: json.profile,
     preferences: json.preferences,
@@ -52,75 +40,9 @@ function sanitizeUser(user) {
     entitlements: json.entitlements,
     stats: json.stats,
     onboarding: json.onboarding,
-    betaAccess,
     createdAt: json.createdAt,
     updatedAt: json.updatedAt,
   };
-}
-
-function betaGateError(access) {
-  const error = new Error(access.message || "Beta access required.");
-  error.status = 403;
-  error.code = access.code || "BETA_ACCESS_REQUIRED";
-  error.betaAccess = access.beta;
-  return error;
-}
-
-async function enforceBetaForAuthenticatedUser(user, testerCode) {
-  if (!isBetaAccessModeEnabled()) {
-    return user;
-  }
-
-  const synced = await syncExpiredBetaStatus(user);
-  const access = evaluateUserBetaAccess(synced);
-
-  if (access.allowed) {
-    return synced;
-  }
-
-  // Expired / revoked accounts cannot redeem another code.
-  if (
-    access.code === "BETA_ACCESS_EXPIRED" ||
-    access.code === "BETA_ACCESS_REVOKED"
-  ) {
-    throw betaGateError(access);
-  }
-
-  if (testerCode) {
-    const redemption = await redeemTesterCodeForUser({
-      userId: synced.id || synced._id,
-      email: synced.email,
-      plainCode: testerCode,
-    });
-
-    if (!redemption.success) {
-      const error = new Error(redemption.message || "Beta access required.");
-      error.status = redemption.statusCode || 403;
-      error.code = redemption.code || "BETA_ACCESS_REQUIRED";
-      error.betaAccess = redemption.beta;
-      throw error;
-    }
-
-    return redemption.user;
-  }
-
-  // Allowlisted emails can activate without a code.
-  if (isAuthorizedTesterEmail(synced.email)) {
-    const activation = await activateAuthorizedEmailForUser({
-      userId: synced.id || synced._id,
-      email: synced.email,
-    });
-    if (!activation.success) {
-      const error = new Error(activation.message || "Beta access required.");
-      error.status = activation.statusCode || 403;
-      error.code = activation.code || "BETA_ACCESS_REQUIRED";
-      error.betaAccess = activation.beta;
-      throw error;
-    }
-    return activation.user;
-  }
-
-  throw betaGateError(access);
 }
 
 async function registerService(payload) {
@@ -129,20 +51,6 @@ async function registerService(payload) {
   if (!result.isValid) {
     const error = new Error(result.errors.join(" "));
     error.status = 400;
-    throw error;
-  }
-
-  const emailIsAllowlisted = isAuthorizedTesterEmail(result.data.email);
-  if (
-    isBetaAccessModeEnabled() &&
-    !result.data.testerCode &&
-    !emailIsAllowlisted
-  ) {
-    const error = new Error(
-      "JUVO is in private beta. Enter a valid tester access code to continue.",
-    );
-    error.status = 403;
-    error.code = "BETA_ACCESS_REQUIRED";
     throw error;
   }
 
@@ -166,46 +74,18 @@ async function registerService(payload) {
     },
   });
 
-  let user = createdUser;
-  if (isBetaAccessModeEnabled()) {
-    let activation;
-    if (result.data.testerCode) {
-      activation = await redeemTesterCodeForUser({
-        userId: createdUser.id || createdUser._id,
-        email: createdUser.email,
-        plainCode: result.data.testerCode,
-      });
-    } else {
-      activation = await activateAuthorizedEmailForUser({
-        userId: createdUser.id || createdUser._id,
-        email: createdUser.email,
-      });
-    }
-
-    if (!activation.success) {
-      // Roll back the unfinished account so an invalid code cannot leave orphans.
-      await User.deleteOne({ _id: createdUser._id || createdUser.id });
-      const error = new Error(activation.message || "Invalid tester code.");
-      error.status = activation.statusCode || 400;
-      error.code = activation.code || "BETA_CODE_INVALID";
-      throw error;
-    }
-    user = activation.user;
-  }
-
   if (result.data.pushToken) {
     sendWelcomeNotification(result.data.pushToken).catch((error) => {
       console.error("Failed to send welcome push notification", error.message);
     });
   }
 
-  const token = signToken(user);
+  const token = signToken(createdUser);
 
   return {
-    user: sanitizeUser(user),
+    user: sanitizeUser(createdUser),
     token,
-    emailVerificationToken: user.security?.emailVerificationToken,
-    betaAccess: presentBetaAccess(user),
+    emailVerificationToken: createdUser.security?.emailVerificationToken,
   };
 }
 
@@ -273,16 +153,11 @@ async function loginService(payload) {
     throw error;
   }
 
-  const gatedUser = await enforceBetaForAuthenticatedUser(
-    user,
-    result.data.testerCode,
-  );
-  const token = signToken(gatedUser);
+  const token = signToken(user);
 
   return {
-    user: sanitizeUser(gatedUser),
+    user: sanitizeUser(user),
     token,
-    betaAccess: presentBetaAccess(gatedUser),
   };
 }
 
@@ -303,15 +178,6 @@ async function appleAuthService(payload) {
   }
 
   if (!user) {
-    if (isBetaAccessModeEnabled() && !result.data.testerCode) {
-      const error = new Error(
-        "JUVO is in private beta. Enter a valid tester access code to continue.",
-      );
-      error.status = 403;
-      error.code = "BETA_ACCESS_REQUIRED";
-      throw error;
-    }
-
     created = true;
     user = await createUser({
       fullName: result.data.fullName || "JUVO Trader",
@@ -321,22 +187,6 @@ async function appleAuthService(payload) {
       pushToken: result.data.pushToken || null,
       password: null,
     });
-
-    if (isBetaAccessModeEnabled()) {
-      const redemption = await redeemTesterCodeForUser({
-        userId: user.id || user._id,
-        email: user.email,
-        plainCode: result.data.testerCode,
-      });
-      if (!redemption.success) {
-        await User.deleteOne({ _id: user._id || user.id });
-        const error = new Error(redemption.message || "Invalid tester code.");
-        error.status = redemption.statusCode || 400;
-        error.code = redemption.code || "BETA_CODE_INVALID";
-        throw error;
-      }
-      user = redemption.user;
-    }
   } else {
     user = await updateUser(user.id, {
       authProvider: "apple",
@@ -347,10 +197,6 @@ async function appleAuthService(payload) {
         : {}),
       ...(result.data.email && !user.email ? { email: result.data.email } : {}),
     });
-    user = await enforceBetaForAuthenticatedUser(
-      user,
-      result.data.testerCode,
-    );
   }
 
   if (created && result.data.pushToken) {
@@ -364,7 +210,6 @@ async function appleAuthService(payload) {
     user: sanitizeUser(user),
     token,
     created,
-    betaAccess: presentBetaAccess(user),
   };
 }
 

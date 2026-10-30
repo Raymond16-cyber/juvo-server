@@ -11,28 +11,25 @@ import {
   resetPassword,
   verifyEmail,
   resendEmailVerification,
-  getBetaStatus,
 } from "../controllers/authController.js";
 import { onBoardingUser } from "../controllers/onBoarding.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
 import {
   forgotPasswordLimiter,
   verifyOtpVerificationCodeLimiter,
-  betaCodeLimiter,
 } from "../utils/rateLimit.js";
 
 const authRoutes = Router();
 
-authRoutes.get("/beta-status", getBetaStatus);
-authRoutes.post("/sign-up", betaCodeLimiter, signup);
-authRoutes.post("/sign-in", betaCodeLimiter, signin);
+authRoutes.post("/sign-up", signup);
+authRoutes.post("/sign-in", signin);
 authRoutes.get("/verify-email/:token", verifyEmail);
 authRoutes.post(
   "/resend-verification",
   verifyOtpVerificationCodeLimiter,
   resendEmailVerification,
 );
-authRoutes.post("/apple", betaCodeLimiter, appleAuth);
+authRoutes.post("/apple", appleAuth);
 authRoutes.get("/me", requireAuth, me);
 authRoutes.post("/logout", requireAuth, logout);
 authRoutes.patch("/preferences", requireAuth, updatePreferences);
