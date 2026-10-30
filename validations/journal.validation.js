@@ -58,6 +58,14 @@ function validateTradeInput(payload = {}) {
   const instrument = String(payload.instrument || "").trim().toLowerCase();
   const direction = String(payload.direction || "").trim().toLowerCase();
   const session = String(payload.session || "").trim();
+  const targetMode =
+    String(payload.targetMode || "").trim().toLowerCase() === "price"
+      ? "price"
+      : "rr";
+  const sizingMode =
+    String(payload.sizingMode || "").trim().toLowerCase() === "manual"
+      ? "manual"
+      : "auto";
 
   const entryPrice = toOptionalNumber(payload.entryPrice);
   const exitPrice = toOptionalNumber(payload.exitPrice);
@@ -78,19 +86,66 @@ function validateTradeInput(payload = {}) {
     errors.push("Instrument is required.");
   }
   if (!["long", "short"].includes(direction)) errors.push("Direction is required.");
+
   for (const [label, value] of Object.entries({
-    "Entry price": entryPrice, "Stop loss": stopLoss, "Take profit": takeProfit,
-    "Lot size": lotSize, "Risk percentage": riskPercentage, "Planned RR": plannedRR,
+    "Entry price": entryPrice,
+    "Stop loss": stopLoss,
+    "Risk percentage": riskPercentage,
   })) {
-    if (!Number.isFinite(value) || value <= 0) errors.push(`${label} must be a finite number greater than zero.`);
+    if (!Number.isFinite(value) || value <= 0) {
+      errors.push(`${label} must be a finite number greater than zero.`);
+    }
   }
-  if (riskPercentage > 100) errors.push("Risk percentage cannot exceed 100.");
-  if (direction === "long" && (stopLoss >= entryPrice || takeProfit <= entryPrice)) {
-    errors.push("For a long trade, stop loss must be below entry and take profit above entry.");
+
+  if (Number.isFinite(riskPercentage) && riskPercentage > 100) {
+    errors.push("Risk percentage cannot exceed 100.");
   }
-  if (direction === "short" && (stopLoss <= entryPrice || takeProfit >= entryPrice)) {
-    errors.push("For a short trade, stop loss must be above entry and take profit below entry.");
+
+  if (targetMode === "rr") {
+    if (!Number.isFinite(plannedRR) || plannedRR <= 0) {
+      errors.push("Planned RR must be a finite number greater than zero.");
+    }
+  } else if (!Number.isFinite(takeProfit) || takeProfit <= 0) {
+    errors.push("Take profit must be a finite number greater than zero.");
   }
+
+  if (sizingMode === "manual" && (!Number.isFinite(lotSize) || lotSize <= 0)) {
+    errors.push("Lot size must be a finite number greater than zero.");
+  }
+
+  if (
+    Number.isFinite(entryPrice) &&
+    Number.isFinite(stopLoss) &&
+    direction === "long" &&
+    stopLoss >= entryPrice
+  ) {
+    errors.push("For a long trade, stop loss must be below entry.");
+  }
+  if (
+    Number.isFinite(entryPrice) &&
+    Number.isFinite(stopLoss) &&
+    direction === "short" &&
+    stopLoss <= entryPrice
+  ) {
+    errors.push("For a short trade, stop loss must be above entry.");
+  }
+  if (
+    Number.isFinite(takeProfit) &&
+    Number.isFinite(entryPrice) &&
+    direction === "long" &&
+    takeProfit <= entryPrice
+  ) {
+    errors.push("For a long trade, take profit must be above entry.");
+  }
+  if (
+    Number.isFinite(takeProfit) &&
+    Number.isFinite(entryPrice) &&
+    direction === "short" &&
+    takeProfit >= entryPrice
+  ) {
+    errors.push("For a short trade, take profit must be below entry.");
+  }
+
   if (status !== "Open" || exitPrice !== undefined || profitLoss !== undefined || achievedRR !== undefined || pips !== undefined || payload.closedAt) {
     errors.push("Create an open trade first, then use the close-trade action to record its result.");
   }
@@ -110,10 +165,12 @@ function validateTradeInput(payload = {}) {
       entryPrice,
       ...(exitPrice !== undefined ? { exitPrice } : {}),
       stopLoss,
-      takeProfit,
-      lotSize,
+      ...(Number.isFinite(takeProfit) ? { takeProfit } : {}),
+      ...(Number.isFinite(lotSize) ? { lotSize } : {}),
       riskPercentage,
-      plannedRR,
+      ...(Number.isFinite(plannedRR) ? { plannedRR } : {}),
+      targetMode,
+      sizingMode,
       ...(achievedRR !== undefined ? { achievedRR } : {}),
       ...(profitLoss !== undefined ? { profitLoss } : {}),
       ...(pips !== undefined ? { pips } : {}),

@@ -22,6 +22,7 @@ import {
   getTodayNoTradeDayService,
   markNoTradeDaySupersededByTrade,
 } from "./noTradeDay.service.js";
+import { calculateTradeSetup } from "./tradeCalculation/tradeCalculation.service.js";
 import { presentTradeForClient } from "./screenshotReview.service.js";
 import {
   applyClosedTradeToAccount,
@@ -398,12 +399,69 @@ async function createJournalTradeService(journalId, data, userId) {
     tradingAccount.isActive = true;
   }
 
+  const accountCurrency = resolveAccountCurrency(tradingAccount);
+  const setup = await calculateTradeSetup({
+    symbol: result.data.symbol,
+    instrument: result.data.instrument,
+    direction: result.data.direction,
+    entryPrice: result.data.entryPrice,
+    stopLoss: result.data.stopLoss,
+    takeProfit: result.data.takeProfit,
+    plannedRR: result.data.plannedRR,
+    riskPercentage: result.data.riskPercentage,
+    lotSize: result.data.lotSize,
+    targetMode: result.data.targetMode,
+    sizingMode: result.data.sizingMode,
+    equity: tradingAccount.currentEquity,
+    balance: tradingAccount.currentBalance,
+    accountCurrency,
+  });
+
+  if (!setup.success) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: setup.errors.join(" ") || "Unable to calculate a valid trade setup.",
+      calculation: setup,
+    };
+  }
+
+  const calculated = setup.values;
   const trade = await Trade.create({
-    ...result.data,
+    symbol: calculated.symbol,
+    instrument: calculated.instrument,
+    direction: calculated.direction,
+    entryPrice: calculated.entryPrice,
+    stopLoss: calculated.stopLoss,
+    takeProfit: calculated.takeProfit,
+    lotSize: calculated.lotSize,
+    riskPercentage: calculated.riskPercentage,
+    plannedRR: calculated.plannedRR,
+    plannedRiskAmount: calculated.riskAmount,
+    estimatedRewardAmount: calculated.estimatedReward,
+    targetMode: calculated.targetMode,
+    sizingMode: calculated.sizingMode,
+    sizingConfidence: calculated.sizingConfidence,
+    calculationMeta: {
+      warnings: setup.warnings,
+      stopDistance: calculated.stopDistance,
+      riskBasis: calculated.riskBasis,
+      riskBasisValue: calculated.riskBasisValue,
+      estimatedRiskAtStop: calculated.estimatedRiskAtStop,
+      sizingNote: calculated.sizingNote,
+      fx: calculated.fx,
+      instrumentSpec: calculated.instrumentSpec,
+      calculatedAt: new Date().toISOString(),
+    },
+    status: result.data.status,
+    session: result.data.session,
+    openedAt: result.data.openedAt,
+    notes: result.data.notes,
+    screenshots: result.data.screenshots,
     user: userId,
     journal: journal._id,
     tradingAccount: tradingAccount._id,
-    profitLossCurrency: tradingAccount.accountCurrency || tradingAccount.currency,
+    profitLossCurrency: accountCurrency,
   });
 
   journal.trades.push(trade._id);
@@ -664,6 +722,51 @@ async function completeJournalService(journalId, data, userId) {
   };
 }
 
+async function previewJournalTradeService(data = {}, userId) {
+  const tradingAccount = await resolveInPlayTradingAccount(
+    userId,
+    data.tradingAccount,
+  );
+
+  if (!tradingAccount) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Select a trading account before calculating size.",
+    };
+  }
+
+  const setup = await calculateTradeSetup({
+    symbol: data.symbol,
+    instrument: data.instrument,
+    direction: data.direction,
+    entryPrice: data.entryPrice,
+    stopLoss: data.stopLoss,
+    takeProfit: data.takeProfit,
+    plannedRR: data.plannedRR,
+    riskPercentage: data.riskPercentage,
+    lotSize: data.lotSize,
+    targetMode: data.targetMode || "rr",
+    sizingMode: data.sizingMode || "auto",
+    equity: tradingAccount.currentEquity,
+    balance: tradingAccount.currentBalance,
+    accountCurrency: resolveAccountCurrency(tradingAccount),
+  });
+
+  return {
+    success: true,
+    data: {
+      ...setup,
+      account: {
+        id: String(tradingAccount._id),
+        currency: resolveAccountCurrency(tradingAccount),
+        currentEquity: tradingAccount.currentEquity,
+        currentBalance: tradingAccount.currentBalance,
+      },
+    },
+  };
+}
+
 export {
   closeJournalTradeService,
   completeJournalService,
@@ -672,4 +775,5 @@ export {
   getJournalByIdService,
   getTodayJournalStatusService,
   getUserJournalsService,
+  previewJournalTradeService,
 };

@@ -1,5 +1,5 @@
 import { getCachedRate, setCachedRate } from "./currency.cache.js";
-import { ConfiguredExchangeRateProvider } from "./currency.provider.js";
+import { CompositeExchangeRateProvider } from "./composite.provider.js";
 import {
   currencyDateKey,
   normalizeCurrencyCode,
@@ -16,7 +16,7 @@ class CurrencyConversionUnavailableError extends Error {
 }
 
 class CurrencyService {
-  constructor(provider = new ConfiguredExchangeRateProvider()) {
+  constructor(provider = new CompositeExchangeRateProvider()) {
     this.provider = provider;
   }
 

@@ -6,6 +6,7 @@ import {
   getJournalByIdService,
   getTodayJournalStatusService,
   getUserJournalsService,
+  previewJournalTradeService,
 } from "../services/journal.service.js";
 import { getJournalStreakService } from "../services/journalStreak.service.js";
 import { getTodayBounds, getUserTimeZone } from "../utils/timezone.js";
@@ -186,6 +187,34 @@ async function createJournalTradeController(req, res, next) {
       success: false,
       code: createTradeResult.code,
       message: createTradeResult.message || "Unable to create trade.",
+      calculation: createTradeResult.calculation || undefined,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function previewJournalTradeController(req, res, next) {
+  try {
+    const userId = req.user.id;
+    if (!userId) {
+      return res.status(400).json({ message: "User is not signed in." });
+    }
+
+    const result = await previewJournalTradeService(
+      req.body?.data || req.body || {},
+      userId,
+    );
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        message: result.message || "Unable to calculate trade setup.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Trade setup calculated.",
+      data: result.data,
     });
   } catch (err) {
     next(err);
@@ -281,4 +310,5 @@ export {
   getJournalStreakController,
   getTodayJournalStatusController,
   getUserJournalsController,
+  previewJournalTradeController,
 };

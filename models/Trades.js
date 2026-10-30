@@ -76,6 +76,35 @@ const tradeSchema = new mongoose.Schema(
       required() { return this.source !== "metatrader"; },
     },
 
+    // Planned setup metadata (not realized P/L).
+    plannedRiskAmount: {
+      type: Number,
+      default: null,
+    },
+    estimatedRewardAmount: {
+      type: Number,
+      default: null,
+    },
+    targetMode: {
+      type: String,
+      enum: ["rr", "price"],
+      default: "rr",
+    },
+    sizingMode: {
+      type: String,
+      enum: ["auto", "manual"],
+      default: "manual",
+    },
+    sizingConfidence: {
+      type: String,
+      enum: ["high", "approximate", "manual", "unavailable"],
+      default: null,
+    },
+    calculationMeta: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
     achievedRR: Number,
 
     profitLoss: {

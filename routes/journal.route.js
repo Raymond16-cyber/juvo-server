@@ -9,6 +9,7 @@ import {
   getJournalStreakController,
   getTodayJournalStatusController,
   getUserJournalsController,
+  previewJournalTradeController,
 } from "../controllers/journal.controller.js";
 import {
   uploadBeforeTradingAudioController,
@@ -44,6 +45,11 @@ journalRoutes.get(
 
 
 journalRoutes.post("/create-journal", requireAuth, createJournalController);
+journalRoutes.post(
+  "/trade-preview",
+  requireAuth,
+  previewJournalTradeController,
+);
 journalRoutes.post(
   "/:journalId/trades",
   requireAuth,
