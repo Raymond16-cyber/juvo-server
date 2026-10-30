@@ -25,12 +25,14 @@ import { randomUUID } from "node:crypto";
 import { normalizeTimeZone } from "../utils/timezone.js";
 import { hashStarEmail } from "../utils/email.js";
 import {
+  activateAuthorizedEmailForUser,
   evaluateUserBetaAccess,
   isBetaAccessModeEnabled,
   presentBetaAccess,
   redeemTesterCodeForUser,
   syncExpiredBetaStatus,
 } from "./betaAccess.service.js";
+import { isAuthorizedTesterEmail } from "../config/authorizedTesters.js";
 
 function sanitizeUser(user) {
   const json = typeof user.toJSON === "function" ? user.toJSON() : user;
@@ -84,25 +86,41 @@ async function enforceBetaForAuthenticatedUser(user, testerCode) {
     throw betaGateError(access);
   }
 
-  if (!testerCode) {
-    throw betaGateError(access);
+  if (testerCode) {
+    const redemption = await redeemTesterCodeForUser({
+      userId: synced.id || synced._id,
+      email: synced.email,
+      plainCode: testerCode,
+    });
+
+    if (!redemption.success) {
+      const error = new Error(redemption.message || "Beta access required.");
+      error.status = redemption.statusCode || 403;
+      error.code = redemption.code || "BETA_ACCESS_REQUIRED";
+      error.betaAccess = redemption.beta;
+      throw error;
+    }
+
+    return redemption.user;
   }
 
-  const redemption = await redeemTesterCodeForUser({
-    userId: synced.id || synced._id,
-    email: synced.email,
-    plainCode: testerCode,
-  });
-
-  if (!redemption.success) {
-    const error = new Error(redemption.message || "Beta access required.");
-    error.status = redemption.statusCode || 403;
-    error.code = redemption.code || "BETA_ACCESS_REQUIRED";
-    error.betaAccess = redemption.beta;
-    throw error;
+  // Allowlisted emails can activate without a code.
+  if (isAuthorizedTesterEmail(synced.email)) {
+    const activation = await activateAuthorizedEmailForUser({
+      userId: synced.id || synced._id,
+      email: synced.email,
+    });
+    if (!activation.success) {
+      const error = new Error(activation.message || "Beta access required.");
+      error.status = activation.statusCode || 403;
+      error.code = activation.code || "BETA_ACCESS_REQUIRED";
+      error.betaAccess = activation.beta;
+      throw error;
+    }
+    return activation.user;
   }
 
-  return redemption.user;
+  throw betaGateError(access);
 }
 
 async function registerService(payload) {
@@ -114,7 +132,12 @@ async function registerService(payload) {
     throw error;
   }
 
-  if (isBetaAccessModeEnabled() && !result.data.testerCode) {
+  const emailIsAllowlisted = isAuthorizedTesterEmail(result.data.email);
+  if (
+    isBetaAccessModeEnabled() &&
+    !result.data.testerCode &&
+    !emailIsAllowlisted
+  ) {
     const error = new Error(
       "JUVO is in private beta. Enter a valid tester access code to continue.",
     );
@@ -145,21 +168,29 @@ async function registerService(payload) {
 
   let user = createdUser;
   if (isBetaAccessModeEnabled()) {
-    const redemption = await redeemTesterCodeForUser({
-      userId: createdUser.id || createdUser._id,
-      email: createdUser.email,
-      plainCode: result.data.testerCode,
-    });
+    let activation;
+    if (result.data.testerCode) {
+      activation = await redeemTesterCodeForUser({
+        userId: createdUser.id || createdUser._id,
+        email: createdUser.email,
+        plainCode: result.data.testerCode,
+      });
+    } else {
+      activation = await activateAuthorizedEmailForUser({
+        userId: createdUser.id || createdUser._id,
+        email: createdUser.email,
+      });
+    }
 
-    if (!redemption.success) {
+    if (!activation.success) {
       // Roll back the unfinished account so an invalid code cannot leave orphans.
       await User.deleteOne({ _id: createdUser._id || createdUser.id });
-      const error = new Error(redemption.message || "Invalid tester code.");
-      error.status = redemption.statusCode || 400;
-      error.code = redemption.code || "BETA_CODE_INVALID";
+      const error = new Error(activation.message || "Invalid tester code.");
+      error.status = activation.statusCode || 400;
+      error.code = activation.code || "BETA_CODE_INVALID";
       throw error;
     }
-    user = redemption.user;
+    user = activation.user;
   }
 
   if (result.data.pushToken) {

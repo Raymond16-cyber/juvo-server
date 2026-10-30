@@ -23,7 +23,16 @@ Admins bypass the private beta gate via the `role` field (not hardcoded emails):
 npm run beta:admin:promote -- --email you@example.com
 ```
 
-## Generate tester codes
+## Hardcoded allowlist (recommended for cloud DB)
+
+Edit `server/config/authorizedTesters.js`, then restart the API:
+
+- `AUTHORIZED_TESTER_CODES` — share these with invited testers
+- `AUTHORIZED_TESTER_EMAILS` — these emails can register/login and start a 24h window without a code
+
+No CLI against the cloud database is required for this path.
+
+## Generate tester codes via CLI (optional)
 
 Plaintext codes are printed **once**. Only hashes are stored.
 

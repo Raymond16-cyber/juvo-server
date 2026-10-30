@@ -1,4 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  isAuthorizedTesterCode,
+  isAuthorizedTesterEmail,
+} from "../config/authorizedTesters.js";
 import BetaTesterCode from "../models/BetaTesterCode.js";
 import User from "../models/User.js";
 
@@ -281,6 +285,104 @@ async function revokeTesterCode(codeId, reason = "") {
   };
 }
 
+async function ensureHardcodedCodeDocument(plainCode) {
+  const normalized = normalizeTesterCode(plainCode);
+  if (!isAuthorizedTesterCode(normalized)) return null;
+
+  const codeHash = hashTesterCode(normalized);
+  let doc = await BetaTesterCode.findOne({ codeHash }).select("+codeHash");
+  if (doc) return doc;
+
+  try {
+    doc = await BetaTesterCode.create({
+      codeHash,
+      codeHint: normalized.slice(-4),
+      status: "available",
+      maxRedemptions: 1,
+      redemptionCount: 0,
+      note: "hardcoded-config",
+      createdBy: "config/authorizedTesters",
+    });
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    doc = await BetaTesterCode.findOne({ codeHash }).select("+codeHash");
+  }
+  return doc;
+}
+
+async function activateBetaWindowForUser(user, { codeId = null, now = new Date() } = {}) {
+  const activatedAt = now;
+  const expiresAt = new Date(activatedAt.getTime() + BETA_WINDOW_MS);
+  user.betaAccess = {
+    status: "active",
+    activatedAt,
+    expiresAt,
+    codeId,
+    grantedAt: activatedAt,
+  };
+  await user.save();
+  return user;
+}
+
+/**
+ * Activate a hardcoded allowlisted email without requiring a tester code.
+ */
+async function activateAuthorizedEmailForUser({ userId, email, now = new Date() }) {
+  const user = await User.findById(userId);
+  if (!user) {
+    return { success: false, statusCode: 404, message: "User not found." };
+  }
+
+  if ((user.role || "user") === "admin") {
+    return {
+      success: true,
+      alreadyAdmin: true,
+      user,
+      beta: presentBetaAccess(user, now),
+    };
+  }
+
+  const normalizedEmail = String(email || user.email || "")
+    .trim()
+    .toLowerCase();
+
+  if (!isAuthorizedTesterEmail(normalizedEmail)) {
+    return {
+      success: false,
+      statusCode: 403,
+      code: "BETA_ACCESS_REQUIRED",
+      message:
+        "JUVO is in private beta. Enter a valid tester access code to continue.",
+    };
+  }
+
+  if (
+    user.betaAccess?.status === "active" ||
+    user.betaAccess?.status === "expired" ||
+    user.betaAccess?.status === "revoked"
+  ) {
+    const synced = await syncExpiredBetaStatus(user, now);
+    const access = evaluateUserBetaAccess(synced, now);
+    if (access.allowed) {
+      return { success: true, user: synced, beta: access.beta };
+    }
+    return {
+      success: false,
+      statusCode: 403,
+      code: access.code || "BETA_ACCESS_LOCKED",
+      message: access.message,
+      beta: access.beta,
+    };
+  }
+
+  const activated = await activateBetaWindowForUser(user, { now });
+  return {
+    success: true,
+    user: activated,
+    beta: presentBetaAccess(activated, now),
+  };
+}
+
 /**
  * Atomically redeem a tester code for a user and activate a 24h window.
  * Does not extend already-activated (active/expired/revoked) testers.
@@ -330,14 +432,17 @@ async function redeemTesterCodeForUser({
     };
   }
 
-  const codeHash = hashTesterCode(normalized);
   const normalizedEmail = String(email || user.email || "")
     .trim()
     .toLowerCase();
 
-  const codeDoc = await BetaTesterCode.findOne({ codeHash }).select(
-    "+codeHash",
-  );
+  // Prefer hardcoded config codes so cloud setups do not need the CLI.
+  let codeDoc = await ensureHardcodedCodeDocument(normalized);
+  if (!codeDoc) {
+    const codeHash = hashTesterCode(normalized);
+    codeDoc = await BetaTesterCode.findOne({ codeHash }).select("+codeHash");
+  }
+
   if (!codeDoc || !codesMatch(normalized, codeDoc.codeHash)) {
     return { success: false, statusCode: 400, message: GENERIC_CODE_ERROR };
   }
@@ -361,9 +466,6 @@ async function redeemTesterCodeForUser({
   if (codeDoc.redemptionCount >= codeDoc.maxRedemptions) {
     return { success: false, statusCode: 400, message: GENERIC_CODE_ERROR };
   }
-
-  const activatedAt = now;
-  const expiresAt = new Date(activatedAt.getTime() + BETA_WINDOW_MS);
 
   // Atomic reservation of a redemption slot.
   const reserveFilter = {
@@ -410,19 +512,15 @@ async function redeemTesterCodeForUser({
     await reserved.save();
   }
 
-  user.betaAccess = {
-    status: "active",
-    activatedAt,
-    expiresAt,
+  const activated = await activateBetaWindowForUser(user, {
     codeId: reserved._id,
-    grantedAt: activatedAt,
-  };
-  await user.save();
+    now,
+  });
 
   return {
     success: true,
-    user,
-    beta: presentBetaAccess(user, now),
+    user: activated,
+    beta: presentBetaAccess(activated, now),
   };
 }
 
@@ -441,6 +539,7 @@ async function assertBetaAccessForRequest(user, now = new Date()) {
 
 export {
   BETA_WINDOW_MS,
+  activateAuthorizedEmailForUser,
   assertBetaAccessForRequest,
   codesMatch,
   createTesterCodes,
