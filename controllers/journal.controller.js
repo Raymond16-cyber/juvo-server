@@ -183,6 +183,8 @@ async function createJournalTradeController(req, res, next) {
     }
 
     return res.status(createTradeResult.statusCode || 400).json({
+      success: false,
+      code: createTradeResult.code,
       message: createTradeResult.message || "Unable to create trade.",
     });
   } catch (err) {

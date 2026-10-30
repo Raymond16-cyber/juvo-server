@@ -1,5 +1,6 @@
 import {
   getTodayNoTradeDayService,
+  liftNoTradeDayService,
   upsertNoTradeDayService,
 } from "../services/noTradeDay.service.js";
 
@@ -61,4 +62,37 @@ async function upsertNoTradeDayController(req, res, next) {
   }
 }
 
-export { getTodayNoTradeDayController, upsertNoTradeDayController };
+async function liftNoTradeDayController(req, res, next) {
+  try {
+    const userId = getUserId(req.user);
+    if (!userId) {
+      return res.status(401).json({ message: "User is not signed in." });
+    }
+
+    const result = await liftNoTradeDayService(
+      userId,
+      req.body?.data || req.body || {},
+    );
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        message: result.message,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: result.data.message,
+      data: result.data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export {
+  getTodayNoTradeDayController,
+  liftNoTradeDayController,
+  upsertNoTradeDayController,
+};

@@ -64,3 +64,14 @@ export const transcriptionLimiter = rateLimit({
       "Too many voice transcriptions. Please wait a few minutes before trying again.",
   },
 });
+
+export const betaCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many tester code attempts. Please try again later.",
+  },
+});

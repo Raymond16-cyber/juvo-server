@@ -22,9 +22,15 @@ function errorHandler(error, req, res, next) {
   if (!Number.isInteger(status) || status < 400 || status > 599) status = 500;
   if (status >= 500) message = "Unable to complete the request. Please try again.";
 
-  res.status(status).json({
-    message,
-  });
+  const payload = { message };
+  if (typeof error.code === "string") {
+    payload.code = error.code;
+  }
+  if (error.betaAccess) {
+    payload.betaAccess = error.betaAccess;
+  }
+
+  res.status(status).json(payload);
 }
 
 export { notFound, errorHandler };

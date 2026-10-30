@@ -36,6 +36,19 @@ const journalSchema = new mongoose.Schema(
       default: "Started",
     },
 
+    // Set when the nightly job auto-closes an open journal after local midnight.
+    autoClosedAt: {
+      type: Date,
+      default: null,
+    },
+
+    autoCloseReason: {
+      type: String,
+      trim: true,
+      maxlength: 200,
+      default: null,
+    },
+
     trades: [
       {
         type: mongoose.Schema.Types.ObjectId,

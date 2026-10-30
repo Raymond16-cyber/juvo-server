@@ -8,18 +8,42 @@ if (!jwtSecret) {
   throw new Error("JWT_SECRET is required.");
 }
 
-function signToken(user) {
-  return jwt.sign(
-    {
-      sub: user.id,
-      email: user.email,
-      fullName: user.fullName,
-    },
-    jwtSecret,
-    {
-      expiresIn: jwtExpiresIn,
-    },
+function resolveTokenTtlSeconds(user) {
+  const betaExpiresAt = user?.betaAccess?.expiresAt
+    ? new Date(user.betaAccess.expiresAt)
+    : null;
+  const betaActive =
+    user?.betaAccess?.status === "active" &&
+    betaExpiresAt &&
+    betaExpiresAt.getTime() > Date.now();
+
+  if (!betaActive || (user?.role || "user") === "admin") {
+    return jwtExpiresIn;
+  }
+
+  const remainingSeconds = Math.max(
+    1,
+    Math.floor((betaExpiresAt.getTime() - Date.now()) / 1000),
   );
+  // Never issue a JWT that outlives the tester window.
+  return `${remainingSeconds}s`;
+}
+
+function signToken(user) {
+  const payload = {
+    sub: user.id || user._id,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role || "user",
+  };
+
+  if (user?.betaAccess?.expiresAt) {
+    payload.betaExp = new Date(user.betaAccess.expiresAt).toISOString();
+  }
+
+  return jwt.sign(payload, jwtSecret, {
+    expiresIn: resolveTokenTtlSeconds(user),
+  });
 }
 
 function verifyToken(token) {

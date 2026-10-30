@@ -74,7 +74,7 @@ const noTradeDaySchema = new mongoose.Schema(
       default: Date.now,
     },
 
-    // Set when a real trade is later logged on the same local day.
+    // Set when a real trade is later logged on the same local day (after an explicit lift).
     supersededByTrade: {
       type: Boolean,
       default: false,
@@ -83,6 +83,19 @@ const noTradeDaySchema = new mongoose.Schema(
     supersededAt: {
       type: Date,
       default: null,
+    },
+
+    // User explicitly lifts the no-trade lock so they may log trades later that day.
+    liftedAt: {
+      type: Date,
+      default: null,
+    },
+
+    liftNote: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "",
     },
 
     ai: {

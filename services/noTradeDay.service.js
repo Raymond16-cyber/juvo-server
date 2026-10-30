@@ -9,10 +9,18 @@ import {
 } from "./journalStreak.service.js";
 import { getLocalDayBounds, getUserTimeZone } from "../utils/timezone.js";
 
+function isActiveNoTradeLock(entry) {
+  if (!entry) return false;
+  if (!entry.confirmed) return false;
+  if (entry.liftedAt) return false;
+  if (entry.supersededByTrade) return false;
+  return true;
+}
+
 function presentNoTradeDay(doc) {
   if (!doc) return null;
   const plain = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
-  return {
+  const presented = {
     _id: String(plain._id),
     localDayKey: plain.localDayKey,
     timezone: plain.timezone,
@@ -22,11 +30,15 @@ function presentNoTradeDay(doc) {
     recordedAt: plain.recordedAt,
     supersededByTrade: Boolean(plain.supersededByTrade),
     supersededAt: plain.supersededAt || null,
+    liftedAt: plain.liftedAt || null,
+    liftNote: plain.liftNote || "",
     journal: plain.journal ? String(plain.journal) : null,
     tradingAccount: plain.tradingAccount ? String(plain.tradingAccount) : null,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
   };
+  presented.isActive = isActiveNoTradeLock(presented);
+  return presented;
 }
 
 function validateNoTradePayload(payload = {}, { requireConfirmation = true } = {}) {
@@ -110,13 +122,24 @@ async function upsertNoTradeDayService(userId, payload = {}) {
     user: userId,
     journalDate: { $gte: startOfDay, $lte: endOfDay },
   })
-    .select("_id tradingAccount")
+    .select("_id tradingAccount trades")
     .lean();
+
+  const tradeCount = Array.isArray(journal?.trades) ? journal.trades.length : 0;
+  if (tradeCount > 0 && !isActiveNoTradeLock(existing)) {
+    return {
+      success: false,
+      statusCode: 400,
+      message:
+        "Trades are already logged for today. A no-trade day can only be recorded on a day without trades.",
+    };
+  }
 
   let entry;
   let created = false;
 
   if (existing) {
+    // Re-confirming an active or previously lifted day re-locks trades.
     entry = await NoTradeDay.findOneAndUpdate(
       { _id: existing._id, user: userId },
       {
@@ -124,6 +147,10 @@ async function upsertNoTradeDayService(userId, payload = {}) {
           reason: validation.data.reason,
           reflection: validation.data.reflection,
           confirmed: true,
+          liftedAt: null,
+          liftNote: "",
+          supersededByTrade: false,
+          supersededAt: null,
           ...(validation.data.tradingAccount
             ? { tradingAccount: validation.data.tradingAccount }
             : {}),
@@ -201,11 +228,13 @@ async function markNoTradeDaySupersededByTrade(userId, activityAt = new Date()) 
     const timeZone = getUserTimeZone(user);
     const dayKey = localDateKey(activityAt, timeZone);
 
+    // Only mark superseded when the lock was already lifted (or never active).
     return NoTradeDay.findOneAndUpdate(
       {
         user: userId,
         localDayKey: dayKey,
         supersededByTrade: { $ne: true },
+        liftedAt: { $ne: null },
       },
       {
         $set: {
@@ -224,9 +253,68 @@ async function markNoTradeDaySupersededByTrade(userId, activityAt = new Date()) 
   }
 }
 
+async function getActiveNoTradeLockForDay(userId, activityAt = new Date()) {
+  const user = await User.findById(userId).select("profile.timezone").lean();
+  if (!user) return null;
+  const timeZone = getUserTimeZone(user);
+  const dayKey = localDateKey(activityAt, timeZone);
+  const entry = await NoTradeDay.findOne({ user: userId, localDayKey: dayKey }).lean();
+  const presented = presentNoTradeDay(entry);
+  return presented && isActiveNoTradeLock(presented) ? presented : null;
+}
+
+async function liftNoTradeDayService(userId, payload = {}) {
+  const user = await User.findById(userId).select("profile.timezone").lean();
+  if (!user) {
+    return { success: false, statusCode: 404, message: "User not found." };
+  }
+
+  const timeZone = getUserTimeZone(user);
+  const now = new Date();
+  const dayKey = localDateKey(now, timeZone);
+  const liftNote = String(payload.liftNote || payload.note || "")
+    .trim()
+    .slice(0, 500);
+
+  const entry = await NoTradeDay.findOne({ user: userId, localDayKey: dayKey });
+  if (!entry) {
+    return {
+      success: false,
+      statusCode: 404,
+      message: "No no-trade day is recorded for today.",
+    };
+  }
+
+  if (!isActiveNoTradeLock(entry)) {
+    return {
+      success: true,
+      data: {
+        entry: presentNoTradeDay(entry),
+        message: "No-trade lock is already inactive.",
+      },
+    };
+  }
+
+  entry.liftedAt = now;
+  entry.liftNote = liftNote;
+  await entry.save();
+
+  return {
+    success: true,
+    data: {
+      entry: presentNoTradeDay(entry),
+      message:
+        "No-trade day lifted. You can log trades for today. Reflection stays in your record.",
+    },
+  };
+}
+
 export {
   NO_TRADE_REASONS,
+  getActiveNoTradeLockForDay,
   getTodayNoTradeDayService,
+  isActiveNoTradeLock,
+  liftNoTradeDayService,
   markNoTradeDaySupersededByTrade,
   presentNoTradeDay,
   upsertNoTradeDayService,

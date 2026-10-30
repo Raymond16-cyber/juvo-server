@@ -20,6 +20,7 @@ import {
 } from "../controllers/screenshotReview.controller.js";
 import {
   getTodayNoTradeDayController,
+  liftNoTradeDayController,
   upsertNoTradeDayController,
 } from "../controllers/noTradeDay.controller.js";
 
@@ -81,6 +82,7 @@ journalRoutes.get("/streak", requireAuth, getJournalStreakController);
 journalRoutes.get("/no-trade-day/today", requireAuth, getTodayNoTradeDayController);
 journalRoutes.post("/no-trade-day", requireAuth, upsertNoTradeDayController);
 journalRoutes.patch("/no-trade-day", requireAuth, upsertNoTradeDayController);
+journalRoutes.post("/no-trade-day/lift", requireAuth, liftNoTradeDayController);
 journalRoutes.post(
   "/:journalId/before-trading-audio",
   requireAuth,

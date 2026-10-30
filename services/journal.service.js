@@ -18,6 +18,7 @@ import {
   recordQualifyingJournalActivity,
 } from "./journalStreak.service.js";
 import {
+  getActiveNoTradeLockForDay,
   getTodayNoTradeDayService,
   markNoTradeDaySupersededByTrade,
 } from "./noTradeDay.service.js";
@@ -195,7 +196,7 @@ async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
     journalingStatus = "review_completed";
   } else if (tradeCount > 0) {
     journalingStatus = "trade_recorded";
-  } else if (noTradeDay && !noTradeDay.supersededByTrade) {
+  } else if (noTradeDay?.isActive) {
     journalingStatus = "no_trade_day";
   } else if (journal?.psychology?.beforeTrading) {
     journalingStatus = "preparation_recorded";
@@ -348,6 +349,25 @@ async function createJournalTradeService(journalId, data, userId) {
       success: false,
       statusCode: 404,
       message: "Start today's journal before creating a trade.",
+    };
+  }
+
+  if (journal.status === "Completed") {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "This journal is closed. Open journals accept new trades.",
+    };
+  }
+
+  const activeNoTrade = await getActiveNoTradeLockForDay(userId, new Date());
+  if (activeNoTrade) {
+    return {
+      success: false,
+      statusCode: 409,
+      code: "NO_TRADE_DAY_ACTIVE",
+      message:
+        "Today is locked as a no-trade day. Lift the no-trade lock before logging a trade.",
     };
   }
 
@@ -535,9 +555,29 @@ async function completeJournalService(journalId, data, userId) {
     return { success: false, statusCode: 400, message: result.errors.join(" ") };
   }
 
+  if (!journalId) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Start today's journal before closing it.",
+    };
+  }
+
   const journal = await Journal.findOne({ _id: journalId, user: userId });
   if (!journal) {
-    return { success: false, statusCode: 404, message: "Journal not found." };
+    return {
+      success: false,
+      statusCode: 404,
+      message: "Journal not found. Create a journal for this day before closing it.",
+    };
+  }
+
+  if (journal.status === "Completed") {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "This journal is already closed.",
+    };
   }
 
   journal.psychology = {

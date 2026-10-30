@@ -14,6 +14,10 @@ import {
   startJournalStreakJob,
   stopJournalStreakJob,
 } from "./jobs/journalStreak.job.js";
+import {
+  startJournalAutoCloseJob,
+  stopJournalAutoCloseJob,
+} from "./jobs/journalAutoClose.job.js";
 
 
 
@@ -26,6 +30,7 @@ async function startServer() {
     await initializeMetaTraderIndexes();
     await initializeBillingIndexes();
     startJournalStreakJob();
+    startJournalAutoCloseJob();
     metatraderRuntime.start();
     startBillingWorker();
     const server = http.createServer(app);
@@ -66,24 +71,25 @@ async function startServer() {
       metatraderRuntime.stop();
       stopBillingWorker();
       stopJournalStreakJob();
+      stopJournalAutoCloseJob();
       process.exit(0);
     };
     process.once("SIGTERM", shutdown);
     process.once("SIGINT", shutdown);
-    // } catch (error) {
-    //   const hiddenMessage = "Check backend configuration and database connectivity.";
-    //   const message = error?.safeConnector
-    //     ? error.message
-    //     : process.env.NODE_ENV === "production"
-    //       ? hiddenMessage
-    //       : error?.message || hiddenMessage;
-    //   console.error("Failed to start server:", message);
-    //   process.exit(1);
-    // }
-  } catch (error) {
-    console.error("Failed to start server:", error?.stack || error);
-    process.exit(1);
-  }
+    } catch (error) {
+      const hiddenMessage = "Check backend configuration and database connectivity.";
+      const message = error?.safeConnector
+        ? error.message
+        : process.env.NODE_ENV === "production"
+          ? hiddenMessage
+          : error?.message || hiddenMessage;
+      console.error("Failed to start server:", message);
+      process.exit(1);
+    }
+  // } catch (error) {
+  //   console.error("Failed to start server:", error?.stack || error);
+  //   process.exit(1);
+  // }
 }
 
 void startServer();
