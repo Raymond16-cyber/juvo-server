@@ -361,7 +361,8 @@ async function calculateTradeSetup(input = {}) {
     );
   }
 
-  let lotSize = toFiniteNumber(input.lotSize);
+  const providedLotSize = toFiniteNumber(input.lotSize);
+  let lotSize = providedLotSize;
   let sizing = {
     lotSize: null,
     sizingMode: input.sizingMode === "manual" ? "manual" : "auto",
@@ -369,14 +370,20 @@ async function calculateTradeSetup(input = {}) {
     note: null,
   };
 
-  if (input.sizingMode === "manual" && lotSize != null && lotSize > 0) {
+  if (input.sizingMode === "manual" && providedLotSize != null && providedLotSize > 0) {
+    lotSize = providedLotSize;
     sizing = {
-      lotSize,
+      lotSize: providedLotSize,
       sizingMode: "manual",
       confidence: "manual",
       note: "Using manually entered position size.",
     };
-  } else if (spec.known && risk.riskAmount != null && fxConversion.lossPerLotAccount) {
+  } else if (
+    input.sizingMode !== "manual" &&
+    spec.known &&
+    risk.riskAmount != null &&
+    fxConversion.lossPerLotAccount
+  ) {
     sizing = calculatePositionSize({
       riskAmount: risk.riskAmount,
       lossPerLotAccount: fxConversion.lossPerLotAccount,
@@ -391,23 +398,42 @@ async function calculateTradeSetup(input = {}) {
         : sizing.lotSize
           ? "approximate"
           : "unavailable";
-    if (sizing.note && sizing.confidence !== "unavailable") {
-      // keep note
-    }
     if (spec.note && sizing.confidence === "approximate") {
       warnings.push(spec.note);
     }
-    lotSize = sizing.lotSize;
-  } else if (lotSize != null && lotSize > 0) {
+
+    if (sizing.lotSize != null && sizing.lotSize > 0) {
+      lotSize = sizing.lotSize;
+    } else if (providedLotSize != null && providedLotSize > 0) {
+      // Auto-size failed; keep the user's entered size so trade logging still works.
+      lotSize = providedLotSize;
+      sizing = {
+        lotSize: providedLotSize,
+        sizingMode: "manual",
+        confidence: "manual",
+        note:
+          sizing.note ||
+          "Automatic sizing unavailable; using the size you entered.",
+      };
+      warnings.push(sizing.note);
+    } else {
+      lotSize = null;
+      warnings.push(
+        sizing.note ||
+          "Automatic sizing unavailable. Enter position size manually.",
+      );
+    }
+  } else if (providedLotSize != null && providedLotSize > 0) {
+    lotSize = providedLotSize;
     sizing = {
-      lotSize,
+      lotSize: providedLotSize,
       sizingMode: "manual",
       confidence: "manual",
       note: "Automatic sizing unavailable; using provided size.",
     };
   } else {
+    lotSize = null;
     sizing.note =
-      sizing.note ||
       "Automatic sizing unavailable. Enter position size manually.";
     warnings.push(sizing.note);
   }
@@ -422,8 +448,14 @@ async function calculateTradeSetup(input = {}) {
       ? roundMoney(lotSize * fxConversion.lossPerLotAccount)
       : risk.riskAmount;
 
+  if (errors.length === 0 && !(lotSize != null && lotSize > 0)) {
+    errors.push(
+      "Position size is required. Enter a size manually or adjust entry, stop, and risk so JUVO can calculate it.",
+    );
+  }
+
   return {
-    success: errors.length === 0 && (lotSize != null && lotSize > 0),
+    success: errors.length === 0 && lotSize != null && lotSize > 0,
     errors,
     warnings,
     values: {

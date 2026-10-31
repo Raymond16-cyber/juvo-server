@@ -417,16 +417,47 @@ async function createJournalTradeService(journalId, data, userId) {
     accountCurrency,
   });
 
+  // Prefer calculated values, but never block a valid manual entry when auto-size fails.
+  let calculated = setup.values;
   if (!setup.success) {
-    return {
-      success: false,
-      statusCode: 400,
-      message: setup.errors.join(" ") || "Unable to calculate a valid trade setup.",
-      calculation: setup,
+    const manualLot = Number(result.data.lotSize);
+    const canFallback =
+      Number.isFinite(manualLot) &&
+      manualLot > 0 &&
+      Number.isFinite(Number(result.data.takeProfit) || Number(calculated?.takeProfit)) &&
+      Number.isFinite(Number(result.data.plannedRR) || Number(calculated?.plannedRR));
+
+    if (!canFallback) {
+      return {
+        success: false,
+        statusCode: 400,
+        message:
+          setup.errors.join(" ") ||
+          "Unable to calculate a valid trade setup. Enter size and target manually, then try again.",
+        calculation: setup,
+      };
+    }
+
+    calculated = {
+      ...calculated,
+      symbol: result.data.symbol,
+      instrument: result.data.instrument,
+      direction: result.data.direction,
+      entryPrice: result.data.entryPrice,
+      stopLoss: result.data.stopLoss,
+      takeProfit: calculated?.takeProfit ?? result.data.takeProfit,
+      plannedRR: calculated?.plannedRR ?? result.data.plannedRR,
+      riskPercentage: result.data.riskPercentage,
+      lotSize: manualLot,
+      targetMode: result.data.targetMode || "rr",
+      sizingMode: "manual",
+      sizingConfidence: "manual",
+      sizingNote: "Saved with manually entered size after auto-calculation failed.",
+      riskAmount: calculated?.riskAmount ?? null,
+      estimatedReward: calculated?.estimatedReward ?? null,
     };
   }
 
-  const calculated = setup.values;
   const trade = await Trade.create({
     symbol: calculated.symbol,
     instrument: calculated.instrument,
