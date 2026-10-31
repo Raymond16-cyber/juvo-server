@@ -105,6 +105,10 @@ function validateTradeInput(payload = {}) {
     if (!Number.isFinite(plannedRR) || plannedRR <= 0) {
       errors.push("Planned RR must be a finite number greater than zero.");
     }
+    // Ignore placeholder takeProfit: 0 from the form while RR mode derives TP.
+    if (!(Number.isFinite(takeProfit) && takeProfit > 0)) {
+      // leave unset for calculator
+    }
   } else if (!Number.isFinite(takeProfit) || takeProfit <= 0) {
     errors.push("Take profit must be a finite number greater than zero.");
   }
@@ -129,21 +133,14 @@ function validateTradeInput(payload = {}) {
   ) {
     errors.push("For a short trade, stop loss must be above entry.");
   }
-  if (
-    Number.isFinite(takeProfit) &&
-    Number.isFinite(entryPrice) &&
-    direction === "long" &&
-    takeProfit <= entryPrice
-  ) {
-    errors.push("For a long trade, take profit must be above entry.");
-  }
-  if (
-    Number.isFinite(takeProfit) &&
-    Number.isFinite(entryPrice) &&
-    direction === "short" &&
-    takeProfit >= entryPrice
-  ) {
-    errors.push("For a short trade, take profit must be below entry.");
+  // Only validate TP geometry when a real take-profit was provided.
+  if (Number.isFinite(takeProfit) && takeProfit > 0 && Number.isFinite(entryPrice)) {
+    if (direction === "long" && takeProfit <= entryPrice) {
+      errors.push("For a long trade, take profit must be above entry.");
+    }
+    if (direction === "short" && takeProfit >= entryPrice) {
+      errors.push("For a short trade, take profit must be below entry.");
+    }
   }
 
   if (status !== "Open" || exitPrice !== undefined || profitLoss !== undefined || achievedRR !== undefined || pips !== undefined || payload.closedAt) {
@@ -165,10 +162,10 @@ function validateTradeInput(payload = {}) {
       entryPrice,
       ...(exitPrice !== undefined ? { exitPrice } : {}),
       stopLoss,
-      ...(Number.isFinite(takeProfit) ? { takeProfit } : {}),
-      ...(Number.isFinite(lotSize) ? { lotSize } : {}),
+      ...(Number.isFinite(takeProfit) && takeProfit > 0 ? { takeProfit } : {}),
+      ...(Number.isFinite(lotSize) && lotSize > 0 ? { lotSize } : {}),
       riskPercentage,
-      ...(Number.isFinite(plannedRR) ? { plannedRR } : {}),
+      ...(Number.isFinite(plannedRR) && plannedRR > 0 ? { plannedRR } : {}),
       targetMode,
       sizingMode,
       ...(achievedRR !== undefined ? { achievedRR } : {}),

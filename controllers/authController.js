@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   registerService,
   loginService,
@@ -21,18 +22,20 @@ async function signup(req, res, next) {
   try {
     const result = await registerService(req.body);
     let verificationSent = true;
+
     try {
       await sendEmailVerificationEmail(
         result.user.email,
         result.emailVerificationToken,
       );
-    } catch {
+    } catch (error) {
+      console.error("Failed to send signup verification email:", error);
       verificationSent = false;
     }
 
     return res.status(201).json({
       message: verificationSent
-        ? "Account created. Check your email to verify your JUVO account."
+        ? "Account created. Check your email for a verification link."
         : "Account created. We could not send the verification email yet; request a new one from the verification screen.",
       user: result.user,
       token: result.token,
@@ -42,9 +45,6 @@ async function signup(req, res, next) {
     return next(error);
   }
 }
-
-
-import crypto from "crypto";
 
 async function verifyEmail(req, res, next) {
   try {
@@ -58,7 +58,6 @@ async function verifyEmail(req, res, next) {
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-    // First, check whether this exact token was already used.
     const alreadyVerified = await User.findOne({
       "security.emailVerificationTokenUsedHash": tokenHash,
       "security.emailVerified": true,
@@ -70,11 +69,10 @@ async function verifyEmail(req, res, next) {
       });
     }
 
-    // Otherwise, find a user with a valid, unexpired token.
     const user = await User.findOne({
       "security.emailVerificationToken": token,
       "security.emailVerificationExpires": { $gt: new Date() },
-    });
+    }).select("+security.emailVerificationToken +security.emailVerificationExpires");
 
     if (!user) {
       return res.status(400).json({
@@ -82,7 +80,6 @@ async function verifyEmail(req, res, next) {
       });
     }
 
-    // Store a hash of the consumed token before clearing it.
     await updateUser(user._id, {
       "security.emailVerified": true,
       "security.emailVerificationTokenUsedHash": tokenHash,
@@ -100,21 +97,15 @@ async function verifyEmail(req, res, next) {
   }
 }
 
-export default verifyEmail;
-
-
 async function resendEmailVerification(req, res, next) {
-  console.log("resending verification email");
-
   try {
     const result = await issueEmailVerificationService(req.body?.email);
-
-    console.log("result", result);
 
     if (result.hasbeenVerified) {
       return res.status(200).json({
         message: "Your account has already been verified. Please log in.",
         alreadyVerified: true,
+        verificationSent: false,
       });
     }
 
@@ -122,20 +113,31 @@ async function resendEmailVerification(req, res, next) {
       return res.status(200).json({
         message:
           "If the account can receive verification mail, a new link has been sent.",
+        verificationSent: false,
       });
     }
 
     if (result.success) {
       try {
         await sendEmailVerificationEmail(result.email, result.token);
+        return res.status(200).json({
+          message: "A new verification link has been sent to your email.",
+          verificationSent: true,
+        });
       } catch (error) {
         console.error("Failed to send verification email:", error);
+        return res.status(502).json({
+          message:
+            "We could not send the verification email right now. Please try again shortly.",
+          verificationSent: false,
+        });
       }
     }
 
     return res.status(200).json({
       message:
         "If the account can receive verification mail, a new link has been sent.",
+      verificationSent: false,
     });
   } catch (error) {
     return next(error);
@@ -216,16 +218,26 @@ async function generateOtpVerificationToken(req, res, next) {
     const result = await generateOtpVerificationTokenService(req.body);
 
     if (result.otpVerificationCode) {
-      await sendOtpToEmail(
-        req.body.email,
-        result.otpVerificationCode,
-        "request-reset-password",
-      );
+      try {
+        await sendOtpToEmail(
+          req.body.email,
+          result.otpVerificationCode,
+          "request-reset-password",
+        );
+      } catch (error) {
+        console.error("Failed to send password reset OTP:", error);
+        const deliveryError = new Error(
+          "We could not send the verification code right now. Please try again shortly.",
+        );
+        deliveryError.status = 502;
+        return next(deliveryError);
+      }
     }
 
     return res.status(200).json({
-      message:
-        "If successfully sent, you'd be redirected to the OTP verification page.",
+      message: result.otpVerificationCode
+        ? "If an account exists for that email, a verification code has been sent."
+        : "If an account exists for that email, a verification code has been sent.",
       otpRequestTriesLeft,
       passwordToken: result.otpVerificationToken,
     });
@@ -233,27 +245,31 @@ async function generateOtpVerificationToken(req, res, next) {
     return next(error);
   }
 }
+
 async function verifyOtpVerificationCode(req, res, next) {
   try {
     const { otp, email } = req.body;
     const { otpVerificationToken } = req.params;
-    // check if the otpVerificationToken in the request params matches the one stored in the database for the given email
+
     const user = await User.findOne({
       email,
       "security.otpVerificationToken": otpVerificationToken,
     });
+
     if (!user) {
       return res.status(400).json({
         error: "Invalid OTP verification token. Please request a new OTP.",
       });
     }
+
     const result = await verifyOtpVerificationCodeService(otp, email, res);
+
     if (result.isError) {
       return res.status(result.error.status).json({
         error: result.error.error,
       });
     }
-    // const resetPasswordToken = await
+
     return res.status(200).json({
       isValid: result.isValid,
       message: "OTP verified successfully.",
@@ -269,11 +285,11 @@ async function resetPassword(req, res, next) {
     const { email, passwords } = req.body;
     const { resetPasswordToken } = req.params;
 
-    // check if the resetPasswordToken in the request params matches the one stored in the database for the given email
     const user = await User.findOne({
       email,
       "security.resetPasswordToken": resetPasswordToken,
     });
+
     if (!user) {
       return res.status(400).json({
         error: "Invalid reset password token.",

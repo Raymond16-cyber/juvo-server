@@ -22,7 +22,6 @@ import {
 import { sendWelcomeNotification } from "../services/notificationService.js";
 import { randomUUID } from "node:crypto";
 import { normalizeTimeZone } from "../utils/timezone.js";
-import { hashStarEmail } from "../utils/email.js";
 
 function sanitizeUser(user) {
   const json = typeof user.toJSON === "function" ? user.toJSON() : user;
@@ -62,6 +61,7 @@ async function registerService(payload) {
   }
 
   const passwordHash = await hashPassword(result.data.password);
+  const emailVerificationToken = randomUUID();
   const createdUser = await createUser({
     fullName: result.data.fullName,
     email: result.data.email,
@@ -69,7 +69,7 @@ async function registerService(payload) {
     password: passwordHash,
     pushToken: result.data.pushToken || null,
     security: {
-      emailVerificationToken: randomUUID(),
+      emailVerificationToken,
       emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
     },
   });
@@ -85,7 +85,7 @@ async function registerService(payload) {
   return {
     user: sanitizeUser(createdUser),
     token,
-    emailVerificationToken: createdUser.security?.emailVerificationToken,
+    emailVerificationToken,
   };
 }
 
@@ -122,7 +122,7 @@ async function issueEmailVerificationService(email) {
     success: true,
     hasbeenVerified: false,
     notFound: false,
-    email: hashStarEmail(user.email),
+    email: user.email,
     token,
   };
 }
