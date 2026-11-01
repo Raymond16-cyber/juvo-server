@@ -79,4 +79,30 @@ describe("entitlement service", () => {
     assert.equal(getFeatureAccess(current, ENTITLEMENTS.JUVO_AI, now).hasAccess, true);
     assert.equal(getFeatureAccess({ ...current, subscription: { ...current.subscription, expiresAt: "2026-09-06T12:00:00.000Z" } }, ENTITLEMENTS.JUVO_AI, now).hasAccess, false);
   });
+
+  it("allows data export only for active paid Pro and Super subscriptions", () => {
+    for (const plan of ["pro", "super"]) {
+      const access = getFeatureAccess(
+        { subscription: { plan, status: "active", expiresAt: "2026-09-08T12:00:00.000Z" } },
+        ENTITLEMENTS.DATA_EXPORT,
+        now,
+      );
+      assert.equal(access.hasAccess, true);
+      assert.equal(access.source, "subscription");
+    }
+  });
+
+  it("denies data export to free, trial, and expired subscriptions", () => {
+    for (const subscription of [
+      { plan: "free", status: "free" },
+      { plan: "pro", status: "trial" },
+      { plan: "super", status: "trial" },
+      { plan: "pro", status: "expired", expiresAt: "2026-09-06T12:00:00.000Z" },
+    ]) {
+      assert.equal(
+        getFeatureAccess({ subscription, entitlements: { aiTrial: { status: "active" } } }, ENTITLEMENTS.DATA_EXPORT, now).hasAccess,
+        false,
+      );
+    }
+  });
 });

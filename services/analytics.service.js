@@ -119,7 +119,7 @@ async function toAnalyticsTrade({ trade, journal, account, targetCurrency }) {
   }
 }
 
-async function getAnalyticsService(userId, tradingAccountId) {
+async function getAnalyticsService(userId, tradingAccountId, dateRange = {}) {
   const [user, accounts] = await Promise.all([
     User.findById(userId).select("preferences reportingCurrency").lean(),
     TradingAccount.find({
@@ -146,6 +146,12 @@ async function getAnalyticsService(userId, tradingAccountId) {
   );
 
   const journalQuery = { user: userId };
+  if (dateRange.from || dateRange.to) {
+    journalQuery.journalDate = {
+      ...(dateRange.from ? { $gte: dateRange.from } : {}),
+      ...(dateRange.to ? { $lte: dateRange.to } : {}),
+    };
+  }
   if (selectedAccount) {
     const accountTradeJournalIds = await Trade.find({
       user: userId,

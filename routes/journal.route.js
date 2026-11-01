@@ -12,6 +12,10 @@ import {
   previewJournalTradeController,
 } from "../controllers/journal.controller.js";
 import {
+  exportExcelController,
+  exportPdfController,
+} from "../controllers/export.controller.js";
+import {
   uploadBeforeTradingAudioController,
   getBeforeTradingAudioController,
 } from "../controllers/journalAudio.controller.js";
@@ -41,6 +45,9 @@ journalRoutes.get(
   requireEntitlement(ENTITLEMENTS.DATA_EXPORT),
   exportJournalsController,
 );
+const requireDataExport = requireEntitlement(ENTITLEMENTS.DATA_EXPORT);
+journalRoutes.get("/export/pdf", requireAuth, requireDataExport, exportPdfController);
+journalRoutes.get("/export/excel", requireAuth, requireDataExport, exportExcelController);
 
 
 
