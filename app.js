@@ -12,7 +12,6 @@ import goalRoutes from "./routes/goal.route.js";
 import brokerRoutes from "./routes/broker.route.js";
 import billingRoutes from "./routes/billing.route.js";
 import { paystackWebhookController } from "./controllers/billing.controller.js";
-import waitlistRoutes from "./routes/waitlist.route.js";
 import achievementRoutes from "./routes/achievement.route.js";
 
 const app = express();
@@ -71,7 +70,6 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
-app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/onboarding", onboardRoutes);
 app.use("/api/trading-account", tradingAccountRoutes);
 app.use("/api/journal", journalRoutes);
