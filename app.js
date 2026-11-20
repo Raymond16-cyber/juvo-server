@@ -13,6 +13,7 @@ import brokerRoutes from "./routes/broker.route.js";
 import billingRoutes from "./routes/billing.route.js";
 import { paystackWebhookController } from "./controllers/billing.controller.js";
 import achievementRoutes from "./routes/achievement.route.js";
+import behaviourRoutes from "./routes/behaviour.route.js";
 
 const app = express();
 // Set only to the exact trusted proxy hops/subnets in deployments with TLS termination.
@@ -77,6 +78,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/goals", goalRoutes);
 app.use("/api/achievements", achievementRoutes);
+app.use("/api/behaviour", behaviourRoutes);
 app.use("/api/billing", billingRoutes);
 // Broker Routes
 app.use("/api/broker", brokerRoutes);

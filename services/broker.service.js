@@ -13,6 +13,7 @@ import {
 import { getCTraderReadOnlySnapshot } from "../brokers/ctrader/ctrader.service.js";
 import { cTraderManager } from "../brokers/ctrader/ctrader.manager.js";
 import { metatraderRuntime } from "../brokers/metatrader/metatrader.runtime.js";
+import { connectionStatusReason } from "../brokers/metatrader/metatrader.security.js";
 import {
   buildSymbolLookup,
   mapCTraderDealToTrade,
@@ -276,9 +277,9 @@ function getCTraderConfig() {
   const clientSecret = process.env.CTRADER_CLIENT_SECRET;
   const redirectUri = process.env.CTRADER_REDIRECT_URI;
   const clientOrigin =
-    process.env.CLIENT_ORIGIN ||
-    process.env.CLIENT_URL ||
-    "http://localhost:3000";
+    process.env.NODE_ENV === "production"
+      ? process.env.CLIENT_URL
+      : process.env.CLIENT_ORIGIN;
 
   brokerLog("config", {
     hasClientId: Boolean(clientId),
@@ -922,7 +923,12 @@ async function listBrokerConnections(user) {
   });
 
   brokerLog("connections:list:done", { count: connections.length });
-  return connections.map((connection) => connection.toJSON());
+  return connections.map((connection) => {
+    const json = connection.toJSON();
+    if (connection.provider !== "metatrader") return json;
+    const reason = connectionStatusReason(connection);
+    return reason ? { ...json, statusReason: reason } : json;
+  });
 }
 
 export {

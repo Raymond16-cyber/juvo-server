@@ -36,12 +36,17 @@ import {
   validateJournalInput,
   validateTradeInput,
 } from "../validations/journal.validation.js";
+import {
+  applyJournalBehaviourFlags,
+  applyTradeBehaviourFlags,
+  runBehaviourDetectionSafe,
+} from "./behaviour.service.js";
 
 const JOURNAL_LIST_SELECT =
-  "_id journalDate status tradingAccount trades psychology review discipline ai createdAt updatedAt";
+  "_id journalDate status tradingAccount trades psychology review discipline ai behaviourFlags createdAt updatedAt";
 
 const TRADE_LIST_SELECT =
-  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source platform brokerMetadata commission swap externalId externalPositionId externalOrderId externalDealId screenshotAnalysis";
+  "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt tradingAccount source platform brokerMetadata commission swap externalId externalPositionId externalOrderId externalDealId screenshotAnalysis behaviourFlags";
 
 const ACCOUNT_LIST_SELECT =
   "accountName accountNumber broker accountType currency accountCurrency currentBalance currentEquity isActive status profitTarget maxDrawnDown initialBalance";
@@ -217,23 +222,184 @@ async function getTodayJournalStatusService(userId, startOfDay, endOfDay) {
   };
 }
 
-async function getUserJournalsService(userId, { includeExportFields = false } = {}) {
-  const [user, journals] = await Promise.all([
-    User.findById(userId).select("preferences reportingCurrency").lean(),
-    populateTrades(
-      Journal.find({ user: userId })
-        .select(includeExportFields ? `${JOURNAL_LIST_SELECT} tradingPlan tradingStrategy` : JOURNAL_LIST_SELECT)
+function parseJournalPage(value) {
+  const page = Number.parseInt(String(value ?? "1"), 10);
+  return Number.isFinite(page) && page > 0 ? page : 1;
+}
+
+function parseJournalLimit(value, { required = false } = {}) {
+  if (value === undefined || value === null || value === "") {
+    return required ? 10 : null;
+  }
+  if (String(value).toLowerCase() === "all") return null;
+  const limit = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(limit) || limit <= 0) return required ? 10 : null;
+  return Math.min(limit, 50);
+}
+
+function buildJournalSearchFilter(userId, q) {
+  const filter = { user: userId };
+  const query = String(q || "").trim();
+  if (!query) return filter;
+
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escaped, "i");
+  filter.$or = [
+    { "psychology.beforeTrading": regex },
+    { "psychology.afterTrading": regex },
+    { "review.lessonLearned": regex },
+    { "review.biggestMistake": regex },
+    { "review.biggestWin": regex },
+  ];
+  return filter;
+}
+
+async function buildJournalListSummary(userId, user) {
+  const journals = await Journal.find({ user: userId })
+    .select("_id journalDate trades")
+    .populate({
+      path: "trades",
+      select: "status profitLoss profitLossCurrency closedAt tradingAccount",
+      populate: { path: "tradingAccount", select: "currency accountCurrency" },
+    })
+    .lean();
+
+  const reportingCurrency = resolveReportingCurrency(user);
+  let totalProfitLoss = 0;
+  let totalProfitLossReporting = 0;
+  let conversionUnavailableCount = 0;
+  let trades = 0;
+  let openTrades = 0;
+  let closedTrades = 0;
+  let winningTrades = 0;
+  let losingTrades = 0;
+
+  for (const journal of journals) {
+    const journalTrades = journal.trades || [];
+    trades += journalTrades.length;
+    for (const trade of journalTrades) {
+      const pnl = Number(trade.profitLoss || 0);
+      totalProfitLoss += pnl;
+      if (trade.status === "Open") openTrades += 1;
+      if (["Closed", "Breakeven"].includes(trade.status)) closedTrades += 1;
+      if (pnl > 0) winningTrades += 1;
+      if (pnl < 0) losingTrades += 1;
+
+      if (pnl === 0) {
+        totalProfitLossReporting += 0;
+        continue;
+      }
+
+      const nativeCurrency = resolveTradeCurrency(
+        trade,
+        trade.tradingAccount,
+        reportingCurrency,
+      );
+      try {
+        const converted = await currencyService.convertClosedTrade({
+          amount: pnl,
+          from: nativeCurrency,
+          to: reportingCurrency,
+          closedAt: trade.closedAt || journal.journalDate,
+        });
+        totalProfitLossReporting += converted.amount;
+      } catch {
+        conversionUnavailableCount += 1;
+        totalProfitLossReporting += pnl;
+      }
+    }
+  }
+
+  return {
+    journals: journals.length,
+    trades,
+    openTrades,
+    closedTrades,
+    winningTrades,
+    losingTrades,
+    totalProfitLoss: Number(totalProfitLoss.toFixed(2)),
+    totalProfitLossReporting: Number(totalProfitLossReporting.toFixed(2)),
+    conversionUnavailableCount,
+    reportingCurrency,
+  };
+}
+
+async function getUserJournalsService(
+  userId,
+  {
+    includeExportFields = false,
+    limit = null,
+    page = 1,
+    q = null,
+    includeSummary = false,
+  } = {},
+) {
+  const parsedLimit = parseJournalLimit(limit, { required: false });
+  const parsedPage = parseJournalPage(page);
+  const filter = buildJournalSearchFilter(userId, q);
+
+  const user = await User.findById(userId)
+    .select("preferences reportingCurrency")
+    .lean();
+
+  if (parsedLimit == null) {
+    const journals = await populateTrades(
+      Journal.find(filter)
+        .select(
+          includeExportFields
+            ? `${JOURNAL_LIST_SELECT} tradingPlan tradingStrategy`
+            : JOURNAL_LIST_SELECT,
+        )
         .populate("tradingAccount", ACCOUNT_LIST_SELECT)
         .sort({ journalDate: -1, createdAt: -1 }),
       includeExportFields,
+    ).lean();
+
+    const data = await Promise.all(
+      journals.map((journal) => summarizeTradesForReporting(journal, user)),
+    );
+
+    return {
+      success: true,
+      data,
+      pagination: null,
+      summary: includeSummary ? await buildJournalListSummary(userId, user) : null,
+    };
+  }
+
+  const skip = (parsedPage - 1) * parsedLimit;
+  const [total, journals, summary] = await Promise.all([
+    Journal.countDocuments(filter),
+    populateTrades(
+      Journal.find(filter)
+        .select(JOURNAL_LIST_SELECT)
+        .populate("tradingAccount", ACCOUNT_LIST_SELECT)
+        .sort({ journalDate: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parsedLimit),
+      false,
     ).lean(),
+    includeSummary || parsedPage === 1
+      ? buildJournalListSummary(userId, user)
+      : Promise.resolve(null),
   ]);
+
+  const data = await Promise.all(
+    journals.map((journal) => summarizeTradesForReporting(journal, user)),
+  );
+  const hasMore = skip + data.length < total;
 
   return {
     success: true,
-    data: await Promise.all(
-      journals.map((journal) => summarizeTradesForReporting(journal, user)),
-    ),
+    data,
+    pagination: {
+      page: parsedPage,
+      limit: parsedLimit,
+      total,
+      hasMore,
+      nextPage: hasMore ? parsedPage + 1 : null,
+    },
+    summary,
   };
 }
 
@@ -509,6 +675,15 @@ async function createJournalTradeService(journalId, data, userId) {
   await markNoTradeDaySupersededByTrade(userId, activityAt);
   const { newlyEarned } = await syncAchievementsAfterActivity(userId);
 
+  runBehaviourDetectionSafe(() =>
+    applyTradeBehaviourFlags({
+      userId,
+      journal,
+      trade,
+      event: "trade_open",
+    }),
+  );
+
   return {
     success: true,
     data: trade,
@@ -630,6 +805,15 @@ async function closeJournalTradeService(journalId, tradeId, data, userId) {
     profitLoss,
   });
 
+  runBehaviourDetectionSafe(() =>
+    applyTradeBehaviourFlags({
+      userId,
+      journal,
+      trade: closedTrade,
+      event: "trade_close",
+    }),
+  );
+
   return {
     success: true,
     data: closedTrade,
@@ -691,6 +875,13 @@ async function completeJournalService(journalId, data, userId) {
   // Completing the day review earns the streak even on a deliberate no-trade day.
   await recordQualifyingJournalActivity(userId, new Date());
   const { newlyEarned } = await syncAchievementsAfterActivity(userId);
+
+  runBehaviourDetectionSafe(() =>
+    applyJournalBehaviourFlags({
+      userId,
+      journal,
+    }),
+  );
 
   const populated = await populateJournal(journalId);
   let analysis = null;

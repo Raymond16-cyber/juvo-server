@@ -1,6 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { requireAuth } from "../middleware/authMiddleware.js";
+import { requireVerifiedEmail } from "../middleware/emailVerificationMiddleware.js";
 import {
   cancelSubscriptionController,
   getBillingController,
@@ -31,12 +32,14 @@ billingRoutes.get("/", requireAuth, getBillingController);
 billingRoutes.post(
   "/checkout",
   requireAuth,
+  requireVerifiedEmail,
   checkoutLimiter,
   initializeCheckoutController,
 );
 billingRoutes.post(
   "/invitation/validate",
   requireAuth,
+  requireVerifiedEmail,
   billingActionLimiter,
   validateBillingInvitationController,
 );

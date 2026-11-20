@@ -133,6 +133,49 @@ const userSchema = new mongoose.Schema(
         },
       ],
 
+      challengeProgress: [
+        {
+          challenge: {
+            type: String,
+            enum: [
+              "fomo",
+              "revenge_trading",
+              "overtrading",
+              "impatience",
+              "poor_risk_management",
+              "emotional_trading",
+              "lack_of_discipline",
+              "inconsistent_strategy",
+            ],
+            required: true,
+          },
+          status: {
+            type: String,
+            enum: ["active", "improving", "overcome", "paused"],
+            default: "active",
+          },
+          flagCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+          },
+          confirmedCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+          },
+          lastFlaggedAt: {
+            type: Date,
+            default: null,
+          },
+          streakWithoutFlag: {
+            type: Number,
+            default: 0,
+            min: 0,
+          },
+        },
+      ],
+
       // Up to three earned achievement ids shown on the user's own profile.
       featuredAchievements: {
         type: [String],

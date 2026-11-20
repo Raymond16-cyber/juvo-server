@@ -238,9 +238,9 @@ async function initializeCheckout({
       409,
       "EMAIL_REQUIRED",
     );
-  if (invitationCode && !currentUser.security?.emailVerified)
+  if (!currentUser.security?.emailVerified)
     throw billingError(
-      "Verify your email before using an invitation code.",
+      "Verify your email before starting checkout.",
       403,
       "EMAIL_NOT_VERIFIED",
     );

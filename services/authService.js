@@ -22,6 +22,7 @@ import {
 import { sendWelcomeNotification } from "../services/notificationService.js";
 import { randomUUID } from "node:crypto";
 import { normalizeTimeZone } from "../utils/timezone.js";
+import { persistChallengeProgress } from "./behaviour.service.js";
 
 function sanitizeUser(user) {
   const json = typeof user.toJSON === "function" ? user.toJSON() : user;
@@ -486,23 +487,28 @@ async function updatePreferencesService(userId, payload = {}) {
       ].includes(instrument),
     );
   }
+  let filteredChallenges = null;
   if (biggestChallenges) {
-    updates["profile.biggestChallenges"] = biggestChallenges.filter(
-      (challenge) =>
-        [
-          "fomo",
-          "revenge_trading",
-          "overtrading",
-          "impatience",
-          "poor_risk_management",
-          "emotional_trading",
-          "lack_of_discipline",
-          "inconsistent_strategy",
-        ].includes(challenge),
+    filteredChallenges = biggestChallenges.filter((challenge) =>
+      [
+        "fomo",
+        "revenge_trading",
+        "overtrading",
+        "impatience",
+        "poor_risk_management",
+        "emotional_trading",
+        "lack_of_discipline",
+        "inconsistent_strategy",
+      ].includes(challenge),
     );
+    updates["profile.biggestChallenges"] = filteredChallenges;
   }
 
-  const user = await updateUser(userId, { $set: updates });
+  let user = await updateUser(userId, { $set: updates });
+  if (filteredChallenges) {
+    user =
+      (await persistChallengeProgress(userId, filteredChallenges)) || user;
+  }
   return { user: sanitizeUser(user) };
 }
 

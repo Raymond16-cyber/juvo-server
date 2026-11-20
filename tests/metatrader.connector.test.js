@@ -11,7 +11,7 @@ import ConnectorHistorySync from "../models/ConnectorHistorySync.js";
 import BrokerHistoryEvent from "../models/BrokerHistoryEvent.model.js";
 import Trade from "../models/Trades.js";
 import User from "../models/User.js";
-import { hash, accountKey, newPairingCode, tokenForPair, connectorConfig, authenticateMetaTraderConnector } from "../brokers/metatrader/metatrader.security.js";
+import { hash, accountKey, newPairingCode, tokenForPair, connectorConfig, authenticateMetaTraderConnector, metatraderStatusGuidance, connectionStatusReason } from "../brokers/metatrader/metatrader.security.js";
 import { createPairingCode, pairConnector, revokeConnector, ownedConnector } from "../brokers/metatrader/metatrader.pairing.js";
 import { MetaTraderRuntime, durableSignature, heartbeatStatus } from "../brokers/metatrader/metatrader.runtime.js";
 import { validatePosition, validateHistoryRecord } from "../brokers/metatrader/metatrader.validation.js";
@@ -28,6 +28,20 @@ test("connector configuration accepts HTTPS and explicit development loopback, n
   assert.throws(() => connectorConfig({ NODE_ENV: "production", MT5_CONNECTOR_URL: "http://localhost:5000" }));
   assert.throws(() => connectorConfig({ MT5_CONNECTOR_URL: "http://api.example.com" }));
   assert.throws(() => connectorConfig({ MT5_CONNECTOR_URL: "https://user:password@example.com" }));
+});
+
+test("MetaTrader status guidance marks MT5 live, MT4 coming soon, and maps offline reasons", () => {
+  const guidance = metatraderStatusGuidance();
+  assert.equal(guidance.platformSupport.mt5, "live");
+  assert.equal(guidance.platformSupport.mt4, "coming_soon");
+  assert.equal(guidance.needsDesktopOnline, true);
+  assert.match(guidance.guidance.desktopOnline, /desktop/i);
+  assert.equal(connectionStatusReason({ status: "stale" }), "heartbeat_timeout");
+  assert.equal(connectionStatusReason({ status: "offline", terminalConnected: false }), "terminal_disconnected");
+  assert.equal(connectionStatusReason({ status: "offline", terminalConnected: true }), "heartbeat_timeout");
+  assert.equal(connectionStatusReason({ status: "synchronizing" }), "synchronizing");
+  assert.equal(connectionStatusReason({ status: "synchronizing", historySyncedAt: new Date() }), "catching_up");
+  assert.equal(connectionStatusReason({ status: "connected" }), null);
 });
 
 test("pairing codes have bounded entropy and tokens are scoped opaque credentials, not JWTs", (t) => {

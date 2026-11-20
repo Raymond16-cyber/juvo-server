@@ -225,6 +225,48 @@ const tradeSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       select: false,
     },
+
+    behaviourFlags: [
+      {
+        challenge: {
+          type: String,
+          enum: [
+            "fomo",
+            "revenge_trading",
+            "overtrading",
+            "impatience",
+            "poor_risk_management",
+            "emotional_trading",
+            "lack_of_discipline",
+            "inconsistent_strategy",
+          ],
+          required: true,
+        },
+        source: {
+          type: String,
+          enum: ["auto", "manual"],
+          default: "auto",
+        },
+        confidence: {
+          type: Number,
+          min: 0,
+          max: 1,
+          default: 0.5,
+        },
+        confirmed: {
+          type: Boolean,
+          default: null,
+        },
+        dismissedAt: {
+          type: Date,
+          default: null,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   {
     _id: true,

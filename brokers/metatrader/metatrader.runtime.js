@@ -5,13 +5,18 @@ import ConnectorHistorySync from "../../models/ConnectorHistorySync.js";
 import TradingAccount from "../../models/tradingAccounts.js";
 import { syncMetaAccount, syncMetaPositions, emitMetaLive, importMetaHistory } from "./metatrader.sync.js";
 import { liveMetaPosition, pickHistoryEvent } from "./metatrader.mapper.js";
-import { connectorError, connectorLog, accountKey } from "./metatrader.security.js";
+import { connectorError, connectorLog, accountKey, connectionStatusReason } from "./metatrader.security.js";
 import { validateEnvelope, validateAccount, validatePosition, validateHistoryRecord, array, integer, text } from "./metatrader.validation.js";
 import { emitToUser } from "../../realtime/realtime.hub.js";
 
 export function heartbeatStatus(at, connected, now = Date.now()) {
   const age = now - new Date(at || 0).getTime();
   return !connected || age > 45000 ? "offline" : age > 15000 ? "stale" : "connected";
+}
+
+function emitSyncStatus(userId, status, extras = {}) {
+  const reason = extras.reason ?? connectionStatusReason({ status, ...extras });
+  emitToUser(userId, "broker:sync-status", reason ? { provider: "metatrader", status, reason } : { provider: "metatrader", status });
 }
 export function durableSignature(positions) {
   return JSON.stringify(positions.map(({ currentPrice, profit, updateTime, ...durable }) => durable).sort((a, b) => a.id.localeCompare(b.id)));
@@ -42,13 +47,27 @@ export class MetaTraderRuntime {
     this.envelope(connection, payload, ["terminalConnected"]);
     if (typeof payload.terminalConnected !== "boolean") throw connectorError("PAYLOAD", "terminalConnected must be a boolean.");
     const state = this.session(connection);
+    const wasOffline = connection.status === "offline" || connection.status === "stale";
     const status = payload.terminalConnected ? (connection.historySyncedAt ? "connected" : "synchronizing") : "offline";
+    const reason = !payload.terminalConnected
+      ? "terminal_disconnected"
+      : status === "synchronizing"
+        ? "synchronizing"
+        : wasOffline && status === "connected"
+          ? "catching_up"
+          : undefined;
     await BrokerConnection.updateOne({ _id: connection._id, desiredConnected: true }, { $set: {
       lastHeartbeatAt: new Date(), terminalConnected: payload.terminalConnected, connectorVersion: payload.connectorVersion, protocolVersion: 1, status,
     } });
     if (!payload.terminalConnected) state.ready = false;
     state.touched = Date.now();
-    if (connection.status !== status) emitToUser(connection.userId, "broker:sync-status", { provider: "metatrader", status });
+    if (connection.status !== status) {
+      emitSyncStatus(connection.userId, status, {
+        reason,
+        terminalConnected: payload.terminalConnected,
+        historySyncedAt: connection.historySyncedAt,
+      });
+    }
     connectorLog("heartbeat received");
     return { historyCursor: connection.historyCursor || 0, syncRequestedAt: connection.syncRequestedAt?.getTime() || 0, needsReconciliation: !state.ready };
   }
@@ -135,7 +154,10 @@ export class MetaTraderRuntime {
           await BrokerConnection.updateOne({ _id: connection._id, desiredConnected: true, lastHeartbeatAt: connection.lastHeartbeatAt }, { $set: { status } });
           await TradingAccount.updateOne({ _id: connection.tradingAccount }, { $set: { isConnected: false } });
           if (this.sessions.has(String(connection._id))) this.sessions.get(String(connection._id)).ready = false;
-          emitToUser(connection.userId, "broker:sync-status", { provider: "metatrader", status });
+          emitSyncStatus(connection.userId, status, {
+            terminalConnected: connection.terminalConnected,
+            historySyncedAt: connection.historySyncedAt,
+          });
         }
       }
       for (const [id, state] of this.sessions) if (!state.busy && Date.now() - state.touched > 60000) this.sessions.delete(id);

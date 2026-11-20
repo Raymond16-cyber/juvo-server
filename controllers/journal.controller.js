@@ -76,12 +76,28 @@ async function getUserJournalsController(req, res, next) {
       });
     }
 
-    const journalsResult = await getUserJournalsService(userId);
+    const hasPaging =
+      req.query.limit !== undefined ||
+      req.query.page !== undefined ||
+      req.query.q !== undefined;
+
+    const journalsResult = await getUserJournalsService(userId, {
+      limit: hasPaging ? req.query.limit ?? 10 : null,
+      page: req.query.page,
+      q: req.query.q,
+      includeSummary:
+        String(req.query.includeSummary || "").toLowerCase() === "true" ||
+        hasPaging,
+    });
 
     if (journalsResult.success) {
       return res.status(200).json({
         message: "Journals retrieved successfully.",
         data: journalsResult.data,
+        ...(journalsResult.pagination
+          ? { pagination: journalsResult.pagination }
+          : {}),
+        ...(journalsResult.summary ? { summary: journalsResult.summary } : {}),
       });
     }
 

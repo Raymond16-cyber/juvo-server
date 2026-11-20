@@ -3,7 +3,8 @@ import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "node:url";
 import BrokerConnection from "../../models/Broker.model.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
-import { authenticateMetaTraderConnector, requireConnectorHttps, connectorConfig, connectorLog } from "./metatrader.security.js";
+import { requireVerifiedEmail } from "../../middleware/emailVerificationMiddleware.js";
+import { authenticateMetaTraderConnector, requireConnectorHttps, connectorConfig, connectorLog, metatraderStatusGuidance, connectionStatusReason } from "./metatrader.security.js";
 import { createPairingCode, pairConnector, ownedConnector, revokeConnector } from "./metatrader.pairing.js";
 import { metatraderRuntime } from "./metatrader.runtime.js";
 
@@ -24,8 +25,19 @@ const endpoint = (handler) => async (req, res) => {
 };
 routes.use(requireConnectorHttps);
 routes.get("/download", (_req, res) => res.download(fileURLToPath(new URL("../../connectors/mt5/JUVOConnector.mq5", import.meta.url)), "JUVOConnector.mq5"));
-routes.get("/status", requireAuth, endpoint(async (req) => ({ ...connectorConfig(), connections: await BrokerConnection.find({ userId: req.user._id, provider: "metatrader" }) })));
-routes.post("/pairing-code", requireAuth, limit(5, 15 * 60000), endpoint((req) => createPairingCode(req.user._id)));
+routes.get("/status", requireAuth, endpoint(async (req) => {
+  const connections = await BrokerConnection.find({ userId: req.user._id, provider: "metatrader" });
+  return {
+    ...connectorConfig(),
+    ...metatraderStatusGuidance(),
+    connections: connections.map((connection) => {
+      const json = connection.toJSON();
+      const reason = connectionStatusReason(connection);
+      return reason ? { ...json, statusReason: reason } : json;
+    }),
+  };
+}));
+routes.post("/pairing-code", requireAuth, requireVerifiedEmail, limit(5, 15 * 60000), endpoint((req) => createPairingCode(req.user._id)));
 routes.post("/pair", limit(10, 60000), endpoint(async (req) => {
   const result = await pairConnector(req.body);
   metatraderRuntime.forget(result.connectionId);

@@ -47,6 +47,40 @@ export function connectorConfig(env = process.env) {
   }
   return { enabled: Boolean(env.JWT_SECRET), url: parsed.origin };
 }
+
+export function metatraderStatusGuidance() {
+  return {
+    platformSupport: { mt5: "live", mt4: "coming_soon" },
+    needsDesktopOnline: true,
+    guidance: {
+      desktopOnline:
+        "Keep the MT5 desktop terminal online with JUVO Connector attached. Mobile and same-account trades only appear in Juvo while that desktop session stays running.",
+      offlineCatchUp:
+        "If the terminal or EA goes offline, live updates pause. When the connector reconnects, Juvo catches up available history.",
+      reasons: {
+        heartbeat_timeout:
+          "No recent heartbeat from JUVO Connector. Keep MT5 running with the EA attached.",
+        terminal_disconnected:
+          "MT5 reported the terminal as disconnected. Reopen the terminal and keep JUVO Connector on a chart.",
+        synchronizing: "Connector is connected and importing account state.",
+        catching_up:
+          "Terminal reconnected. Juvo is catching up history from while the desktop was offline.",
+      },
+    },
+  };
+}
+
+export function connectionStatusReason(connection) {
+  const status = connection?.status;
+  if (status === "stale") return "heartbeat_timeout";
+  if (status === "offline") {
+    return connection.terminalConnected ? "heartbeat_timeout" : "terminal_disconnected";
+  }
+  if (status === "synchronizing") {
+    return connection.historySyncedAt ? "catching_up" : "synchronizing";
+  }
+  return null;
+}
 export function newPairingCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const value = [...randomBytes(12)]

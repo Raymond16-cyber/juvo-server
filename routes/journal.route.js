@@ -30,6 +30,7 @@ import {
 } from "../controllers/noTradeDay.controller.js";
 
 import { requireAuth } from "../middleware/authMiddleware.js";
+import { requireVerifiedEmail } from "../middleware/emailVerificationMiddleware.js";
 import { requireEntitlement } from "../middleware/entitlementMiddleware.js";
 import { ENTITLEMENTS } from "../services/entitlement.service.js";
 import audioUpload from "../utils/audioUpload.js";
@@ -39,15 +40,28 @@ import { screenshotReviewLimiter } from "../utils/rateLimit.js";
 const journalRoutes = Router();
 const requireJuvoAi = requireEntitlement(ENTITLEMENTS.JUVO_AI);
 
+const requireDataExport = requireEntitlement(ENTITLEMENTS.DATA_EXPORT);
 journalRoutes.get(
   "/export",
   requireAuth,
+  requireVerifiedEmail,
   requireEntitlement(ENTITLEMENTS.DATA_EXPORT),
   exportJournalsController,
 );
-const requireDataExport = requireEntitlement(ENTITLEMENTS.DATA_EXPORT);
-journalRoutes.get("/export/pdf", requireAuth, requireDataExport, exportPdfController);
-journalRoutes.get("/export/excel", requireAuth, requireDataExport, exportExcelController);
+journalRoutes.get(
+  "/export/pdf",
+  requireAuth,
+  requireVerifiedEmail,
+  requireDataExport,
+  exportPdfController,
+);
+journalRoutes.get(
+  "/export/excel",
+  requireAuth,
+  requireVerifiedEmail,
+  requireDataExport,
+  exportExcelController,
+);
 
 
 

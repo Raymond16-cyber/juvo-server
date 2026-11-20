@@ -1,5 +1,6 @@
 import { updateUser } from "../repositories/userRepository.js";
 import { sanitizeUser } from "../services/authService.js";
+import { persistChallengeProgress } from "../services/behaviour.service.js";
 import { validateOnboardingInput } from "../validations/onboardingValidation.js";
 
 function buildOnboardingUpdates(data) {
@@ -63,7 +64,15 @@ export const onBoardingUser = async (req, res, next) => {
     }
 
     const updates = buildOnboardingUpdates(validation.data);
-    const updatedUser = await updateUser(req.user.id, updates);
+    let updatedUser = await updateUser(req.user.id, updates);
+
+    if (validation.data.biggestChallenges !== undefined) {
+      updatedUser =
+        (await persistChallengeProgress(
+          req.user.id,
+          validation.data.biggestChallenges,
+        )) || updatedUser;
+    }
 
     return res.status(200).json({
       message: "Onboarding completed successfully.",
