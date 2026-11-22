@@ -100,16 +100,20 @@ int OnInit() {
    lock_handle = FileOpen(storage + ".lock", FILE_WRITE | FILE_BIN);
    if(lock_handle == INVALID_HANDLE) { Print("JUVO: another connector may already be attached to this account."); return INIT_FAILED; }
    LoadState();
-   // Any non-empty PairingCode forces a fresh pair. Keeping a saved token while the
-   // same old code remains in Inputs is what produces HTTP 401 after a disconnect.
+   // Only a NEW pairing code replaces the saved credential. Leaving the same code in
+   // Inputs after a successful pair must keep the token, or every restart burns /pair.
    if(PairingCode != "") {
       string incoming_hash = Digest(PairingCode);
       if(incoming_hash == "") { Print("JUVO: unable to hash PairingCode."); return INIT_FAILED; }
-      token = ""; account_key = ""; connection_id = ""; cursor = 0;
-      code_hash = incoming_hash;
-      attempt = Digest(scope + I((long)TimeLocal()) + U(GetMicrosecondCount()));
-      if(attempt == "" || !SaveState()) return INIT_FAILED;
-      Print("JUVO: pairing code detected. Requesting a new connector credential.");
+      if(incoming_hash != code_hash) {
+         token = ""; account_key = ""; connection_id = ""; cursor = 0;
+         code_hash = incoming_hash;
+         attempt = Digest(scope + I((long)TimeLocal()) + U(GetMicrosecondCount()));
+         if(attempt == "" || !SaveState()) return INIT_FAILED;
+         Print("JUVO: new pairing code detected. Requesting a connector credential.");
+      } else if(token != "") {
+         Print("JUVO: pairing code unchanged; using saved connector credential.");
+      }
    }
    if(token == "" && PairingCode == "") { Print("JUVO: generate a pairing code in JUVO and enter PairingCode."); return INIT_PARAMETERS_INCORRECT; }
    if(attempt == "") { attempt = Digest(scope + U(GetMicrosecondCount())); if(!SaveState()) return INIT_FAILED; }
@@ -212,7 +216,13 @@ void SendPending() {
    if(status == 401 || status == 403 || status == 426 || (pending_path == "/pair" && status == 400)) {
       stopped = true;
       if(status == 401) { token = ""; FileDelete(storage + ".state"); }
-      PrintFormat("JUVO: connection rejected (HTTP %d) on %s. Generate a fresh pairing code in JUVO, paste it into PairingCode, and reattach.", status, pending_path);
+      string detail = CharArrayToString(response, 0, WHOLE_ARRAY, CP_UTF8);
+      if(StringLen(detail) > 300) detail = StringSubstr(detail, 0, 300);
+      PrintFormat("JUVO: connection rejected (HTTP %d) on %s. %s", status, pending_path, detail);
+      if(pending_path == "/pair")
+         Print("JUVO: generate a fresh pairing code in JUVO only after MT5 is logged in to the trade server, then reattach.");
+      else
+         Print("JUVO: generate a fresh pairing code in JUVO, paste it into PairingCode, and reattach.");
       pending_path = ""; pending_body = "";
       return;
    }
@@ -254,11 +264,18 @@ void OnTimer() {
    if(token == "") {
       // Never retry a leftover authenticated path while unpaired.
       if(pending_path != "" && pending_path != "/pair") { pending_path = ""; pending_body = ""; }
-      // Pairing uses AccountInfo snapshot data and does not require a live quote feed.
-      // Still warn when the trade server is down so users can see why later sync waits.
-      if(!connected && GetTickCount64() - wait_log_at >= 15000) {
-         wait_log_at = GetTickCount64();
-         Print("JUVO: trade server offline. Pairing will still be attempted; keep MT5 logged in to the account.");
+      // Pairing needs a complete AccountInfo snapshot. Offline demos often return blank
+      // currency/company, which Juvo rejects with HTTP 400 before consuming the code.
+      string currency = AccountInfoString(ACCOUNT_CURRENCY);
+      string company = AccountInfoString(ACCOUNT_COMPANY);
+      string server = AccountInfoString(ACCOUNT_SERVER);
+      if(!connected || currency == "" || company == "" || server == "" || AccountInfoInteger(ACCOUNT_LOGIN) <= 0) {
+         if(GetTickCount64() - wait_log_at >= 15000) {
+            wait_log_at = GetTickCount64();
+            PrintFormat("JUVO: waiting for trade-server login before pairing (connected=%s currency=%s company=%s server=%s).",
+               connected ? "yes" : "no", currency == "" ? "missing" : currency, company == "" ? "missing" : company, server == "" ? "missing" : server);
+         }
+         return;
       }
       pending_path = "/pair"; pending_body = "{\"protocolVersion\":1,\"connectorVersion\":\"1.0.0\",\"code\":" + Q(PairingCode) + ",\"attemptId\":" + Q(attempt) + ",\"account\":" + AccountJson() + "}";
       SendPending(); return;
