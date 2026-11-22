@@ -15,7 +15,7 @@ long login, cursor = 0, requested = 0, history_start = 0, history_end = 0;
 string server_name;
 int lock_handle = INVALID_HANDLE, failures = 0, history_page = 0, history_pages = 0, offset_seconds = 0;
 int history_deals = 0, history_orders = 0;
-ulong retry_at = 0, heartbeat_at = 0, account_at = 0, positions_at = 0, history_at = 0;
+ulong retry_at = 0, heartbeat_at = 0, account_at = 0, positions_at = 0, history_at = 0, wait_log_at = 0;
 bool history_dirty = true, account_dirty = true, force_positions = true, stopped = false, history_turn = false;
 
 string Q(string value) {
@@ -75,6 +75,14 @@ bool LocalOrigin(string value) {
 }
 int OnInit() {
    if(MQLInfoInteger(MQL_TESTER)) { Print("JUVO: WebRequest requires a desktop terminal, not Strategy Tester."); return INIT_FAILED; }
+   // Input changes re-run OnInit without resetting globals. Clear runtime queue state
+   // so a leftover /heartbeat from a prior 401 cannot fire before /pair.
+   pending_path = ""; pending_body = ""; pending_positions = ""; last_positions = "";
+   history_id = ""; stopped = false; history_turn = false;
+   failures = 0; history_page = 0; history_pages = 0;
+   history_deals = 0; history_orders = 0; history_start = 0; history_end = 0;
+   retry_at = 0; heartbeat_at = 0; account_at = 0; positions_at = 0; history_at = 0; wait_log_at = 0;
+   requested = 0; history_dirty = true; account_dirty = true; force_positions = true;
    origin = ApiUrl;
    while(StringLen(origin) > 0 && StringSubstr(origin, StringLen(origin)-1) == "/") origin = StringSubstr(origin, 0, StringLen(origin)-1);
    bool https = StringFind(origin, "https://") == 0;
@@ -92,16 +100,22 @@ int OnInit() {
    lock_handle = FileOpen(storage + ".lock", FILE_WRITE | FILE_BIN);
    if(lock_handle == INVALID_HANDLE) { Print("JUVO: another connector may already be attached to this account."); return INIT_FAILED; }
    LoadState();
-   string incoming_hash = Digest(PairingCode);
-   if(PairingCode != "" && incoming_hash != code_hash) {
+   // Any non-empty PairingCode forces a fresh pair. Keeping a saved token while the
+   // same old code remains in Inputs is what produces HTTP 401 after a disconnect.
+   if(PairingCode != "") {
+      string incoming_hash = Digest(PairingCode);
+      if(incoming_hash == "") { Print("JUVO: unable to hash PairingCode."); return INIT_FAILED; }
       token = ""; account_key = ""; connection_id = ""; cursor = 0;
-      code_hash = incoming_hash; attempt = Digest(scope + I((long)TimeLocal()) + U(GetMicrosecondCount()));
-      if(!SaveState()) return INIT_FAILED;
+      code_hash = incoming_hash;
+      attempt = Digest(scope + I((long)TimeLocal()) + U(GetMicrosecondCount()));
+      if(attempt == "" || !SaveState()) return INIT_FAILED;
+      Print("JUVO: pairing code detected. Requesting a new connector credential.");
    }
    if(token == "" && PairingCode == "") { Print("JUVO: generate a pairing code in JUVO and enter PairingCode."); return INIT_PARAMETERS_INCORRECT; }
    if(attempt == "") { attempt = Digest(scope + U(GetMicrosecondCount())); if(!SaveState()) return INIT_FAILED; }
    if(!EventSetTimer(1)) return INIT_FAILED;
-   Print("JUVO: read-only connector started. Account-wide sync is enabled."); return INIT_SUCCEEDED;
+   PrintFormat("JUVO: read-only connector started (%s). Account-wide sync is enabled.", token == "" ? "pairing" : "saved credential");
+   return INIT_SUCCEEDED;
 }
 void OnDeinit(const int reason) {
    EventKillTimer();
@@ -192,18 +206,23 @@ void SendPending() {
    string request_headers = "Content-Type: application/json\r\nAccept: text/plain\r\n";
    if(token != "") request_headers += "Authorization: Connector " + token + "\r\n";
    ResetLastError();
-   int status = WebRequest("POST", origin + "/api/broker/metatrader" + pending_path, request_headers, 10000, body, response, headers);
+   string url = origin + "/api/broker/metatrader" + pending_path;
+   if(pending_path == "/pair") PrintFormat("JUVO: posting pairing request to %s", origin);
+   int status = WebRequest("POST", url, request_headers, 10000, body, response, headers);
    if(status == 401 || status == 403 || status == 426 || (pending_path == "/pair" && status == 400)) {
       stopped = true;
       if(status == 401) { token = ""; FileDelete(storage + ".state"); }
-      PrintFormat("JUVO: connection rejected (HTTP %d). Check the connector version or generate a new pairing code.", status); return;
+      PrintFormat("JUVO: connection rejected (HTTP %d) on %s. Generate a fresh pairing code in JUVO, paste it into PairingCode, and reattach.", status, pending_path);
+      pending_path = ""; pending_body = "";
+      return;
    }
    string lines[];
    int length = StringSplit(CharArrayToString(response, 0, WHOLE_ARRAY, CP_UTF8), '\n', lines);
    if(status != 200 || length != 7 || lines[0] != "JUVO1") {
       failures = (int)MathMin(failures + 1, 6);
       retry_at = GetTickCount64() + (ulong)(MathMin(60, MathPow(2, failures)) * 1000);
-      PrintFormat("JUVO: sync delayed (HTTP %d, terminal error %d). Retrying with bounded backoff.", status, GetLastError()); return;
+      PrintFormat("JUVO: sync delayed (HTTP %d, terminal error %d) on %s. Retrying with bounded backoff.", status, GetLastError(), pending_path);
+      return;
    }
    failures = 0; retry_at = 0;
    if(pending_path == "/pair") {
@@ -232,6 +251,18 @@ void OnTimer() {
    bool connected = (bool)TerminalInfoInteger(TERMINAL_CONNECTED);
    if(connected) offset_seconds = BrokerUtcOffsetMinutes == 9999 ? (int)(MathRound((double)(TimeTradeServer() - TimeGMT()) / 60) * 60) : BrokerUtcOffsetMinutes * 60;
    ulong now = GetTickCount64();
+   if(token == "") {
+      // Never retry a leftover authenticated path while unpaired.
+      if(pending_path != "" && pending_path != "/pair") { pending_path = ""; pending_body = ""; }
+      // Pairing uses AccountInfo snapshot data and does not require a live quote feed.
+      // Still warn when the trade server is down so users can see why later sync waits.
+      if(!connected && GetTickCount64() - wait_log_at >= 15000) {
+         wait_log_at = GetTickCount64();
+         Print("JUVO: trade server offline. Pairing will still be attempted; keep MT5 logged in to the account.");
+      }
+      pending_path = "/pair"; pending_body = "{\"protocolVersion\":1,\"connectorVersion\":\"1.0.0\",\"code\":" + Q(PairingCode) + ",\"attemptId\":" + Q(attempt) + ",\"account\":" + AccountJson() + "}";
+      SendPending(); return;
+   }
    if(pending_path != "") {
       // A retried live snapshot must not masquerade as a fresh market quote.
       if(pending_path == "/positions") {
@@ -244,10 +275,7 @@ void OnTimer() {
       } else if(pending_path == "/heartbeat") pending_body = Envelope() + ",\"terminalConnected\":" + (connected ? "true" : "false") + "}";
       SendPending(); return;
    }
-   if(token == "") {
-      if(!connected) return;
-      pending_path = "/pair"; pending_body = "{\"protocolVersion\":1,\"connectorVersion\":\"1.0.0\",\"code\":" + Q(PairingCode) + ",\"attemptId\":" + Q(attempt) + ",\"account\":" + AccountJson() + "}";
-   } else if(DisconnectAndClear) { pending_path = "/revoke"; pending_body = Envelope() + "}"; }
+   if(DisconnectAndClear) { pending_path = "/revoke"; pending_body = Envelope() + "}"; }
    else if(now - heartbeat_at >= 5000) {
       pending_path = "/heartbeat"; pending_body = Envelope() + ",\"terminalConnected\":" + (connected ? "true" : "false") + "}";
    } else if(!connected) return;
