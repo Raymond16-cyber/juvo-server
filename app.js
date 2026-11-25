@@ -34,32 +34,32 @@ if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
   throw new Error("CLIENT_URL is required in production.");
 }
 
-// app.use(
-//   cors({
-//     origin(origin, callback) {
-//       if (
-//         !origin ||
-//         allowedOrigins.includes("*") ||
-//         allowedOrigins.includes(origin)
-//       ) {
-//         return callback(null, true);
-//       }
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (
+        !origin ||
+        allowedOrigins.includes("*") ||
+        allowedOrigins.includes(origin)
+      ) {
+        return callback(null, true);
+      }
 
-//       console.warn("Blocked CORS request from origin:", origin);
-//       return callback(new Error(`Not allowed by CORS: ${origin}`));
-//     },
-//     credentials: true,
-//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-//     allowedHeaders: ["Content-Type", "Authorization"],
-//   }),
-// );
+      console.warn("Blocked CORS request from origin:", origin);
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
-app.use(cors({
-  origin: "",
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
+// app.use(cors({
+//   origin: "",
+//   credentials: true,
+//   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//   allowedHeaders: ["Content-Type", "Authorization"],
+// }));
 
 // Paystack signs the exact raw body, so this must be mounted before JSON parsing.
 app.post(
