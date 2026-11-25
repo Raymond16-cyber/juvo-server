@@ -21,7 +21,7 @@ import {
 } from "../utils/sanitizeModelIdentity.js";
 import { normalizeScreenshotReview } from "../utils/screenshotImage.js";
 
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = "gemini-3.5-flash";
 const SCREENSHOT_ANALYSIS_TIMEOUT_MS = 55_000;
 
 function readApiKey() {
