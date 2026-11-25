@@ -44,13 +44,14 @@ app.use(
         allowedOrigins.includes("*") ||
         allowedOrigins.includes(origin)
       ) {
-        callback(null, true);
-        return;
+        return callback(null, true);
       }
 
-      callback(new Error("Not allowed by CORS."));
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
