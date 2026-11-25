@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { parseAllowedOrigins } from "./utils/corsOrigins.js";
 // Routes
 import authRoutes from "./routes/authRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
@@ -27,12 +28,9 @@ const configuredClientOrigin =
   process.env.NODE_ENV === "production"
     ? process.env.CLIENT_URL
     : process.env.CLIENT_ORIGIN;
-const allowedOrigins = (configuredClientOrigin || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowedOrigins = parseAllowedOrigins(configuredClientOrigin);
 
-if (process.env.NODE_ENV === "production" && !process.env.CLIENT_URL) {
+if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
   throw new Error("CLIENT_URL is required in production.");
 }
 
@@ -47,6 +45,7 @@ app.use(
         return callback(null, true);
       }
 
+      console.warn("Blocked CORS request from origin:", origin);
       return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     credentials: true,
