@@ -145,6 +145,7 @@ async function resendEmailVerification(req, res, next) {
 }
 
 async function signin(req, res, next) {
+  console.log("signin request body:", req.body);
   try {
     const result = await loginService(req.body);
 
