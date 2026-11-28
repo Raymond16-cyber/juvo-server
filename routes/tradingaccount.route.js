@@ -8,6 +8,7 @@ import {
   getTradingAccountByIdController,
   getUserTradingAccountsController,
   restoreTradingAccountController,
+  updateTradingAccountController,
 } from "../controllers/TradingAccount.js";
 
 const tradingAccountRoutes = Router();
@@ -16,6 +17,7 @@ tradingAccountRoutes.post("/create-trading-account", requireAuth, createTradingA
 tradingAccountRoutes.get("/get-user-trading-accounts", requireAuth, getUserTradingAccountsController);
 tradingAccountRoutes.get("/archived", requireAuth, getArchivedTradingAccountsController);
 tradingAccountRoutes.get("/:accountId", requireAuth, getTradingAccountByIdController);
+tradingAccountRoutes.patch("/:accountId", requireAuth, updateTradingAccountController);
 tradingAccountRoutes.patch("/:accountId/activate", requireAuth, activateTradingAccountController);
 tradingAccountRoutes.patch("/:accountId/restore", requireAuth, restoreTradingAccountController);
 tradingAccountRoutes.delete("/delete-trading-account/:accountId", requireAuth, deleteTradingAccountController);

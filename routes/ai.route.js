@@ -15,6 +15,7 @@ import {
   planComplianceController,
   putCheckinPreferencesController,
   startAiTrialController,
+  updatePlanComplianceController,
 } from "../controllers/ai.controller.js";
 import { transcribeAudioController } from "../controllers/transcription.controller.js";
 import { ENTITLEMENTS } from "../services/entitlement.service.js";
@@ -91,6 +92,12 @@ aiRoutes.post(
   requireAuth,
   requirePlanCompliance,
   planComplianceController,
+);
+aiRoutes.patch(
+  "/plan-compliance",
+  requireAuth,
+  requirePlanCompliance,
+  updatePlanComplianceController,
 );
 aiRoutes.post(
   "/period-review",

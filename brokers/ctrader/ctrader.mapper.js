@@ -3,6 +3,8 @@ import {
   CTRADER_POSITION_STATUS,
   CTRADER_TRADE_SIDE,
 } from "./ctrader.constants.js";
+import { derivePlannedRR } from "../../utils/tradeMetrics.js";
+import { inferTradingSession } from "../../utils/tradingSession.js";
 
 function startOfUtcDay(timestamp) {
   const date = new Date(Number(timestamp || Date.now()));
@@ -84,6 +86,46 @@ function normalizeUnrealizedPnl(value, moneyDigits = 2) {
   };
 }
 
+function validDate(value) {
+  if (value == null) return undefined;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+function validPrice(value) {
+  const price = Number(value);
+  return value != null && Number.isFinite(price) && price > 0
+    ? price
+    : undefined;
+}
+
+function buildPositionEntryMap(deals = []) {
+  const entries = new Map();
+  for (const deal of deals) {
+    if (
+      deal?.positionId == null ||
+      deal.closePositionDetail ||
+      deal.dealStatus !== CTRADER_DEAL_STATUS.FILLED
+    ) {
+      continue;
+    }
+
+    const openedAt = validDate(deal.executionTimestamp || deal.createTimestamp);
+    if (!openedAt) continue;
+
+    const key = String(deal.positionId);
+    const current = entries.get(key);
+    if (!current || openedAt < current.openedAt) {
+      entries.set(key, {
+        openedAt,
+        stopLoss: validPrice(deal.stopLoss),
+        takeProfit: validPrice(deal.takeProfit),
+      });
+    }
+  }
+  return entries;
+}
+
 function projectLivePosition({ position, quote, symbol, unrealizedPnl }) {
   const currentPrice = getRelevantClosePrice({
     direction: position.direction,
@@ -112,6 +154,7 @@ function mapCTraderDealToTrade({
   ctidTraderAccountId,
   symbolLookup,
   moneyDigits,
+  positionEntry,
 }) {
   const closeDetail = deal?.closePositionDetail;
   if (!closeDetail || deal.dealStatus !== CTRADER_DEAL_STATUS.FILLED) return null;
@@ -123,6 +166,18 @@ function mapCTraderDealToTrade({
 
   const direction =
     deal.tradeSide === CTRADER_TRADE_SIDE.SELL ? "long" : "short";
+  const openedAt =
+    validDate(positionEntry?.openedAt) ||
+    validDate(closeDetail.openTimestamp) ||
+    validDate(deal.openTimestamp);
+  const stopLoss = validPrice(positionEntry?.stopLoss);
+  const takeProfit = validPrice(positionEntry?.takeProfit);
+  const plannedRR = derivePlannedRR({
+    direction,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+  });
   const dealMoneyDigits = closeDetail.moneyDigits ?? deal.moneyDigits ?? moneyDigits;
   const grossProfit = moneyToNumber(closeDetail.grossProfit, dealMoneyDigits);
   const swap = moneyToNumber(closeDetail.swap, dealMoneyDigits);
@@ -141,15 +196,14 @@ function mapCTraderDealToTrade({
     direction,
     entryPrice,
     exitPrice,
-    stopLoss: entryPrice,
-    takeProfit: exitPrice,
+    stopLoss,
+    takeProfit,
     lotSize: volumeToLots(closeDetail.closedVolume || deal.filledVolume || deal.volume),
-    riskPercentage: 0,
-    plannedRR: 0,
-    achievedRR: 0,
+    ...(plannedRR !== undefined ? { plannedRR } : {}),
     profitLoss,
     status: "Closed",
-    openedAt: new Date(deal.createTimestamp || deal.executionTimestamp),
+    openedAt,
+    session: inferTradingSession(openedAt),
     closedAt: new Date(deal.executionTimestamp || deal.createTimestamp),
     notes: "Imported from cTrader.",
     source: "ctrader",
@@ -220,6 +274,7 @@ function mapCTraderPosition({
 }
 
 export {
+  buildPositionEntryMap,
   buildSymbolLookup,
   buildSymbolMetadataMap,
   convertSpotPrice,

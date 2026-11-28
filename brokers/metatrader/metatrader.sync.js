@@ -5,6 +5,10 @@ import TradingAccount from "../../models/tradingAccounts.js";
 import Trade from "../../models/Trades.js";
 import Journal from "../../models/Journal.js";
 import User from "../../models/User.js";
+import {
+  applyTradeBehaviourFlags,
+  runBehaviourDetectionSafe,
+} from "../../services/behaviour.service.js";
 import { emitToUser } from "../../realtime/realtime.hub.js";
 import { getZonedDateParts, zonedTimeToUtc } from "../../utils/timezone.js";
 import { mapMetaAccount, mapMetaPosition, normalizeMetaDeals, liveMetaPosition } from "./metatrader.mapper.js";
@@ -40,8 +44,11 @@ export async function syncMetaAccount(connection, info) {
     if (error.code === 11000) throw metaError("ACCOUNT_CONFLICT", "This MetaTrader account already has an active JUVO connection.", 409);
     throw error;
   }
+  const syncedFields = Object.fromEntries(
+    Object.entries(mapped).filter(([key]) => key !== "accountName"),
+  );
   account = await TradingAccount.findOneAndUpdate({ _id: account._id, userId: connection.userId }, {
-    $set: { ...mapped, brokerConnection: connection._id },
+    $set: { ...syncedFields, brokerConnection: connection._id },
   }, { new: true });
   connection.tradingAccount = account._id;
   await BrokerConnection.updateOne({ _id: connection._id }, { $set: { tradingAccount: account._id, accountNumber: mapped.accountNumber,
@@ -124,9 +131,19 @@ export async function importMetaHistory(connection, account, { notifySince } = {
         imported++;
         await User.updateOne({ _id: connection.userId }, { $inc: { "stats.totalTrades": 1 } });
         metaLog("JUVO trade upserted", { id: String(trade._id) });
+        if (notifySince && mapped.closedAt >= notifySince) {
+          runBehaviourDetectionSafe(() =>
+            applyTradeBehaviourFlags({
+              userId: connection.userId,
+              journal,
+              trade,
+              event: "trade_close",
+            }),
+          );
+        }
         if (notifySince && mapped.closedAt >= notifySince) emitToUser(connection.userId, "trade:closed", {
           trade: { _id: String(trade._id), journal: String(trade.journal), symbol: trade.symbol, direction: trade.direction,
-            profitLoss: trade.profitLoss, profitLossCurrency: trade.profitLossCurrency }, journalId: String(trade.journal),
+            profitLoss: trade.profitLoss, profitLossCurrency: trade.profitLossCurrency, session: trade.session }, journalId: String(trade.journal),
         });
       }
     }

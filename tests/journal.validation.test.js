@@ -13,7 +13,10 @@ test("manual opening keeps the user's planned RR", () => {
 test("invalid numbers, dates and account identifiers are rejected before persistence", () => {
   for (const key of ["entryPrice", "stopLoss", "takeProfit", "lotSize", "riskPercentage", "plannedRR"]) {
     for (const value of [Infinity, "Infinity", NaN, true, [], {}, -1, 0]) {
-      assert.equal(validateTradeInput({ ...trade, [key]: value }).isValid, false, `${key}: ${value}`);
+      const input = { ...trade, [key]: value };
+      if (key === "takeProfit") input.targetMode = "price";
+      if (key === "lotSize") input.sizingMode = "manual";
+      assert.equal(validateTradeInput(input).isValid, false, `${key}: ${value}`);
     }
   }
   assert.equal(validateTradeInput({ ...trade, openedAt: "not a date" }).isValid, false);

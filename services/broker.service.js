@@ -14,12 +14,13 @@ import { getCTraderReadOnlySnapshot } from "../brokers/ctrader/ctrader.service.j
 import { cTraderManager } from "../brokers/ctrader/ctrader.manager.js";
 import { metatraderRuntime } from "../brokers/metatrader/metatrader.runtime.js";
 import { connectionStatusReason } from "../brokers/metatrader/metatrader.security.js";
+import { getUserTimeZone, getZonedDateParts, zonedTimeToUtc } from "../utils/timezone.js";
 import {
+  buildPositionEntryMap,
   buildSymbolLookup,
   mapCTraderDealToTrade,
   mapCTraderPosition,
   moneyToNumber,
-  startOfUtcDay,
 } from "../brokers/ctrader/ctrader.mapper.js";
 
 const CTRADER_AUTHORIZE_URL =
@@ -73,7 +74,6 @@ async function upsertTradingAccountFromCTrader({ userId, snapshot }) {
     },
     {
       $set: {
-        accountName: `${brokerTitle} ${trader.traderLogin || ctidTraderAccountId}`,
         accountType: account.isLive ? "live" : "demo",
         currentBalance: balance,
         currentEquity: balance,
@@ -85,6 +85,7 @@ async function upsertTradingAccountFromCTrader({ userId, snapshot }) {
         lastSyncedAt: new Date(),
       },
       $setOnInsert: {
+        accountName: `${brokerTitle} ${trader.traderLogin || ctidTraderAccountId}`,
         userId,
         accountNumber: String(ctidTraderAccountId),
         broker: brokerTitle,
@@ -184,8 +185,28 @@ async function syncCTraderOpenPositions({
   };
 }
 
-async function findOrCreateImportedJournal({ userId, tradingAccountId, timestamp }) {
-  const journalDate = startOfUtcDay(timestamp);
+async function findOrCreateImportedJournal({
+  userId,
+  tradingAccountId,
+  timestamp,
+  timeZone: providedTimeZone,
+}) {
+  let timeZone = providedTimeZone;
+  if (!timeZone) {
+    const user = await User.findById(userId).select("profile.timezone").lean();
+    timeZone = getUserTimeZone(user);
+  }
+  const dateParts = getZonedDateParts(timestamp, timeZone);
+  const journalDate = zonedTimeToUtc(
+    {
+      ...dateParts,
+      hour: 0,
+      minute: 0,
+      second: 0,
+      millisecond: 0,
+    },
+    timeZone,
+  );
   return Journal.findOneAndUpdate(
     {
       user: userId,
@@ -208,7 +229,10 @@ async function findOrCreateImportedJournal({ userId, tradingAccountId, timestamp
 
 async function importCTraderClosedDeals({ userId, tradingAccount, snapshot }) {
   const symbolLookup = buildSymbolLookup(snapshot.symbols, snapshot.archivedSymbols);
+  const positionEntries = buildPositionEntryMap(snapshot.deals || []);
   const moneyDigits = snapshot.trader?.moneyDigits ?? 2;
+  const user = await User.findById(userId).select("profile.timezone").lean();
+  const timeZone = getUserTimeZone(user);
   let imported = 0;
   let skipped = 0;
 
@@ -218,6 +242,7 @@ async function importCTraderClosedDeals({ userId, tradingAccount, snapshot }) {
       ctidTraderAccountId: snapshot.selectedAccount.ctidTraderAccountId,
       symbolLookup,
       moneyDigits,
+      positionEntry: positionEntries.get(String(deal.positionId)),
     });
 
     if (!tradePayload) {
@@ -240,6 +265,7 @@ async function importCTraderClosedDeals({ userId, tradingAccount, snapshot }) {
       userId,
       tradingAccountId: tradingAccount._id,
       timestamp: tradePayload.closedAt,
+      timeZone,
     });
 
     const trade = await Trade.create({

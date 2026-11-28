@@ -1,7 +1,10 @@
 import TradingAccount from "../models/tradingAccounts.js";
 import { createTradingAccount } from "../repositories/tradingAccountRepo.js";
 import { findUserById } from "../repositories/userRepository.js";
-import { validateTradingAccountInput } from "../validations/tradingAccountValidation.js";
+import {
+  validateTradingAccountInput,
+  validateTradingAccountUpdateInput,
+} from "../validations/tradingAccountValidation.js";
 
 const ACCOUNT_TRADE_SELECT =
   "symbol instrument direction status entryPrice exitPrice stopLoss takeProfit lotSize riskPercentage profitLoss profitLossCurrency normalizedProfitLoss plannedRR achievedRR session notes openedAt closedAt createdAt source platform brokerMetadata commission swap externalId externalPositionId externalOrderId externalDealId";
@@ -190,6 +193,62 @@ async function getTradingAccountByIdService(accountId, userId) {
   return {
     success: true,
     data: withAccountStats(populated),
+  };
+}
+
+async function updateTradingAccountService(accountId, data, userId) {
+  const result = validateTradingAccountUpdateInput(data);
+  if (!result.isValid) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: result.errors.join(" "),
+    };
+  }
+
+  const account = await TradingAccount.findOne({
+    _id: accountId,
+    userId,
+    isArchived: false,
+  });
+  if (!account) {
+    return {
+      success: false,
+      statusCode: 404,
+      message: "Trading account not found.",
+    };
+  }
+
+  const previousStatus = getAccountStatus(account);
+  const wasActive = account.isActive;
+  Object.assign(account, result.data);
+  const evaluation = evaluateTradingAccountStatus(account);
+  account.status = evaluation.status;
+  if (account.status !== previousStatus) {
+    account.statusUpdatedAt = new Date();
+  }
+  if (account.status !== "Active") {
+    account.isActive = false;
+  }
+  await account.save();
+
+  if (wasActive && account.status !== "Active") {
+    const fallback = await TradingAccount.findOne({
+      userId,
+      _id: { $ne: account._id },
+      isArchived: false,
+      $or: [{ status: "Active" }, { status: { $exists: false } }],
+    }).sort({ createdAt: -1 });
+    if (fallback) {
+      fallback.isActive = true;
+      if (!fallback.status) fallback.status = "Active";
+      await fallback.save();
+    }
+  }
+
+  return {
+    success: true,
+    data: withAccountStats(await populateTradingAccount(account._id)),
   };
 }
 
@@ -429,5 +488,6 @@ export {
   getUserTradingAccountsService,
   isTradingAccountInPlay,
   restoreTradingAccountService,
+  updateTradingAccountService,
   setActiveTradingAccount,
 };

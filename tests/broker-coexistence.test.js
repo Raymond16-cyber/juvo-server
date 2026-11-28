@@ -3,7 +3,7 @@ import { test } from "node:test";
 import mongoose from "mongoose";
 import Trade from "../models/Trades.js";
 import BrokerPosition from "../models/BrokerPosition.model.js";
-import { mapCTraderDealToTrade, mapCTraderPosition, normalizeUnrealizedPnl, projectLivePosition } from "../brokers/ctrader/ctrader.mapper.js";
+import { buildPositionEntryMap, mapCTraderDealToTrade, mapCTraderPosition, normalizeUnrealizedPnl, projectLivePosition } from "../brokers/ctrader/ctrader.mapper.js";
 import { CTRADER_DEAL_STATUS, CTRADER_POSITION_STATUS, CTRADER_TRADE_SIDE } from "../brokers/ctrader/ctrader.constants.js";
 
 test("cTrader still maps native money, direction, position identity and live P/L", () => {
@@ -23,12 +23,65 @@ test("cTrader still maps native money, direction, position identity and live P/L
     closePositionDetail: { entryPrice: 1.1, closedVolume: 10000000, grossProfit: 1200, commission: -150, swap: -10, pnlConversionFee: -5 },
   } });
   assert.equal(trade.source, "ctrader"); assert.equal(trade.externalId, "123:99"); assert.equal(trade.direction, "long"); assert.equal(trade.profitLoss, 10.35);
+  assert.equal(trade.stopLoss, undefined);
+  assert.equal(trade.takeProfit, undefined);
+  assert.equal(trade.riskPercentage, undefined);
+  assert.equal(trade.plannedRR, undefined);
+  assert.equal(trade.session, undefined);
+});
+
+test("cTrader imports infer session and planned RR only from recorded entry details", () => {
+  const deal = {
+    dealId: 99,
+    positionId: 55,
+    symbolId: 1,
+    executionPrice: 1.2,
+    executionTimestamp: Date.parse("2026-01-15T12:30:00Z"),
+    tradeSide: CTRADER_TRADE_SIDE.SELL,
+    dealStatus: CTRADER_DEAL_STATUS.FILLED,
+    closePositionDetail: {
+      entryPrice: 1.1,
+      closedVolume: 10000000,
+      grossProfit: 1200,
+    },
+  };
+  const entries = buildPositionEntryMap([
+    {
+      positionId: 55,
+      dealStatus: CTRADER_DEAL_STATUS.FILLED,
+      executionTimestamp: Date.parse("2026-01-15T14:00:00Z"),
+      stopLoss: 1.05,
+      takeProfit: 1.2,
+    },
+    {
+      positionId: 55,
+      dealStatus: CTRADER_DEAL_STATUS.FILLED,
+      executionTimestamp: Date.parse("2026-01-15T11:00:00Z"),
+      stopLoss: 1.06,
+      takeProfit: 1.18,
+    },
+    deal,
+  ]);
+  const mapped = mapCTraderDealToTrade({
+    deal,
+    ctidTraderAccountId: "123",
+    symbolLookup: new Map([["1", "EURUSD"]]),
+    moneyDigits: 2,
+    positionEntry: entries.get("55"),
+  });
+
+  assert.equal(mapped.openedAt.toISOString(), "2026-01-15T11:00:00.000Z");
+  assert.equal(mapped.session, "London");
+  assert.equal(mapped.stopLoss, 1.06);
+  assert.equal(mapped.takeProfit, 1.18);
+  assert.equal(mapped.plannedRR, 2);
 });
 
 test("MetaTrader optional fields do not weaken manual trade or cTrader account validation", () => {
   const id = new mongoose.Types.ObjectId();
   const base = { user: id, journal: id, tradingAccount: id, symbol: "EURUSD", instrument: "forex", direction: "long", entryPrice: 1.1, lotSize: 1 };
   assert.equal(new Trade({ ...base, source: "metatrader" }).validateSync(), undefined);
+  assert.equal(new Trade({ ...base, source: "ctrader" }).validateSync(), undefined);
   assert.ok(new Trade({ ...base, source: "manual" }).validateSync().errors.plannedRR);
   const pos = { userId: id, tradingAccount: id, externalPositionId: "account:position", symbol: "EURUSD", direction: "long" };
   assert.equal(new BrokerPosition({ ...pos, provider: "metatrader" }).validateSync(), undefined);

@@ -31,5 +31,20 @@ export default async function connectDb() {
     // Index already matches per-user account uniqueness.
   }
 
+  try {
+    const { default: TradingPlan } = await import("../models/tradingPlan.js");
+    // Replace legacy unique(userId, tradingAccount, status) so archived versions can coexist.
+    await TradingPlan.collection.dropIndex("userId_1_tradingAccount_1_status_1");
+  } catch {
+    // Partial unique active-plan index is defined on the model.
+  }
+
+  try {
+    const { default: TradingPlan } = await import("../models/tradingPlan.js");
+    await TradingPlan.syncIndexes();
+  } catch (error) {
+    console.warn("TradingPlan index sync skipped:", error?.message || error);
+  }
+
   await ensureTradeIndexes();
 }

@@ -36,6 +36,7 @@ test("journal export scopes the query to the owner and includes extra trade fiel
 
 test("two simultaneous close requests apply the result once and preserve planned RR", async (t) => {
   t.mock.method(Journal, "findOne", async () => ({ _id: journalId, tradingAccount: accountId }));
+  t.mock.method(User, "findById", () => query(null));
   t.mock.method(Trade, "findOne", async () => ({ ...trade }));
   t.mock.method(TradingAccount, "findOne", () => ({ select: async () => account }));
   let claimed = false;
@@ -73,6 +74,7 @@ test("broker trades cannot be manually closed and closed dates cannot precede op
 
 test("an unavailable explicit trading account never falls back to a different account", async (t) => {
   t.mock.method(Journal, "findOne", async () => ({ _id: journalId, tradingAccount: accountId }));
+  t.mock.method(User, "findById", () => query(null));
   const findAccount = t.mock.method(TradingAccount, "findOne", async () => null);
   const result = await createJournalTradeService(journalId, {
     symbol: "EURUSD", instrument: "forex", direction: "long", entryPrice: 1.1, stopLoss: 1.09, takeProfit: 1.12, lotSize: 1, riskPercentage: 1, plannedRR: 2, tradingAccount: accountId,

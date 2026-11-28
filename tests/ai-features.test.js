@@ -192,7 +192,7 @@ describe("plan compliance helpers", () => {
     );
   });
 
-  it("returns unknown when risk data is missing", () => {
+  it("keeps configured rules unknown when required trade data is missing", () => {
     const result = buildPlanComplianceChecks({
       plan: { maxRiskPerTrade: 1 },
       trades: [{ status: "Closed" }],
@@ -201,6 +201,26 @@ describe("plan compliance helpers", () => {
     assert.ok(
       result.unknown.some((item) => item.label === "max_risk_per_trade"),
     );
+    assert.ok(
+      result.notRecorded.some(
+        (item) => item.label === "followed_trading_plan",
+      ),
+    );
+  });
+
+  it("does not score rules that were never configured or journal questions left unanswered", () => {
+    const result = buildPlanComplianceChecks({
+      plan: null,
+      trades: [{ status: "Closed" }],
+      journal: { discipline: {} },
+    });
+
+    assert.equal(result.counts.total, 0);
+    assert.equal(result.counts.unknown, 0);
+    assert.equal(result.counts.notConfigured, 4);
+    assert.equal(result.counts.notRecorded, 3);
+    assert.equal(result.violated.length, 0);
+    assert.equal(result.followed.length, 0);
   });
 });
 

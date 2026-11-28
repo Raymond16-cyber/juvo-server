@@ -26,6 +26,7 @@ for (const platform of ["mt5"]) test(`${platform} close deals are deduplicated a
   assert.equal(result.trades[0].externalId, "juvo-account:deal:2");
   assert.equal(result.trades[0].brokerMetadata.origin, "ea");
   assert.equal(result.trades[0].plannedRR, undefined);
+  assert.equal(result.trades[0].session, "London");
 });
 test("netting reversal splits the close from the new exposure", () => {
   const result = normalizeMetaDeals([entry, { ...close, volume: 2, entryType: "DEAL_ENTRY_INOUT", profit: 10, commission: -4 },

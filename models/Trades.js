@@ -53,12 +53,12 @@ const tradeSchema = new mongoose.Schema(
 
     stopLoss: {
       type: Number,
-      required() { return this.source !== "metatrader"; },
+      required() { return this.source === "manual"; },
     },
 
     takeProfit: {
       type: Number,
-      required() { return this.source !== "metatrader"; },
+      required() { return this.source === "manual"; },
     },
 
     lotSize: {
@@ -68,12 +68,12 @@ const tradeSchema = new mongoose.Schema(
 
     riskPercentage: {
       type: Number,
-      required() { return this.source !== "metatrader"; },
+      required() { return this.source === "manual"; },
     },
 
     plannedRR: {
       type: Number,
-      required() { return this.source !== "metatrader"; },
+      required() { return this.source === "manual"; },
     },
 
     // Planned setup metadata (not realized P/L).
@@ -239,6 +239,7 @@ const tradeSchema = new mongoose.Schema(
             "emotional_trading",
             "lack_of_discipline",
             "inconsistent_strategy",
+            "overconfidence",
           ],
           required: true,
         },
@@ -260,6 +261,12 @@ const tradeSchema = new mongoose.Schema(
         dismissedAt: {
           type: Date,
           default: null,
+        },
+        evidence: {
+          kind: { type: String, trim: true, maxlength: 60 },
+          description: { type: String, trim: true, maxlength: 300 },
+          observedAt: Date,
+          metrics: mongoose.Schema.Types.Mixed,
         },
         createdAt: {
           type: Date,

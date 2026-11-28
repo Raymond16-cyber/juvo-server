@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import { after, describe, it } from "node:test";
 import {
+  buildBehaviourReports,
   detectBehaviourFlags,
   seedChallengeProgress,
 } from "../services/behaviour.service.js";
@@ -127,6 +128,18 @@ describe("detectBehaviourFlags", () => {
       event: "trade_open",
     });
 
+    it("does not interpret missing broker risk data as poor risk management", () => {
+      const flags = detectBehaviourFlags({
+        user: buildUser(["poor_risk_management"]),
+        journal: { _id: "j1", trades: ["t1"] },
+        trade: { _id: "t1", openedAt: new Date(), createdAt: new Date() },
+        recentTrades: [],
+        event: "trade_open",
+      });
+
+      assert.equal(flags.length, 0);
+    });
+
     assert.equal(
       flags.some((flag) => flag.challenge === "poor_risk_management"),
       true,
@@ -176,7 +189,7 @@ describe("detectBehaviourFlags", () => {
     assert.ok(challenges.includes("emotional_trading"));
   });
 
-  it("uses lower confidence for soft fomo and impatience signals", () => {
+  it("uses lower confidence for inferred impatience without treating trade bursts as FOMO", () => {
     const now = Date.now();
     const recentTrades = [
       {
@@ -212,11 +225,138 @@ describe("detectBehaviourFlags", () => {
       event: "trade_open",
     });
 
-    const fomo = flags.find((flag) => flag.challenge === "fomo");
     const impatience = flags.find((flag) => flag.challenge === "impatience");
-    assert.ok(fomo);
+    assert.equal(flags.some((flag) => flag.challenge === "fomo"), false);
     assert.ok(impatience);
-    assert.ok(fomo.confidence <= 0.5);
     assert.ok(impatience.confidence <= 0.5);
+  });
+
+  it("only identifies FOMO from an explicit journal reflection", () => {
+    const flags = detectBehaviourFlags({
+      user: buildUser(["fomo"]),
+      journal: {
+        _id: "j1",
+        journalDate: new Date(),
+        psychology: { afterTrading: "I entered because I feared missing the move." },
+      },
+      event: "journal_complete",
+    });
+
+    assert.equal(flags.length, 1);
+    assert.equal(flags[0].challenge, "fomo");
+    assert.equal(flags[0].source, "manual");
+    assert.equal(flags[0].evidence.kind, "journal_self_report");
+  });
+
+  it("identifies post-win risk escalation only with a recorded baseline", () => {
+    const now = Date.now();
+    const flags = detectBehaviourFlags({
+      user: buildUser(["overconfidence"]),
+      journal: { _id: "j1", trades: ["t1", "t2", "t3"] },
+      trade: {
+        _id: "t3",
+        riskPercentage: 2,
+        openedAt: new Date(now),
+        createdAt: new Date(now),
+      },
+      recentTrades: [
+        {
+          _id: "t1",
+          status: "Closed",
+          profitLoss: 10,
+          riskPercentage: 1,
+          closedAt: new Date(now - 30 * 60 * 1000),
+        },
+        {
+          _id: "t2",
+          status: "Closed",
+          profitLoss: 12,
+          riskPercentage: 1,
+          closedAt: new Date(now - 15 * 60 * 1000),
+        },
+        {
+          _id: "t3",
+          status: "Open",
+          riskPercentage: 2,
+          openedAt: new Date(now),
+          createdAt: new Date(now),
+        },
+      ],
+      event: "trade_open",
+    });
+
+    const observation = flags.find((flag) => flag.challenge === "overconfidence");
+    assert.ok(observation);
+    assert.equal(observation.evidence.metrics.consecutiveWins, 2);
+    assert.equal(observation.evidence.metrics.recentMedianRiskPercentage, 1);
+  });
+});
+
+describe("buildBehaviourReports", () => {
+  it("reports no data instead of implying a clean behavioural record", () => {
+    const now = new Date("2026-11-25T00:00:00.000Z");
+    const report = buildBehaviourReports({
+      challenges: ["fomo"],
+      tradeRows: [],
+      journalRows: [],
+      now,
+    });
+
+    assert.equal(report.dataAvailability.sufficientForComparison, false);
+    assert.match(report.dataAvailability.message, /not enough trading or journal history/);
+    assert.equal(report.observations[0].occurrences, 0);
+    assert.equal(report.observations[0].trend, "unchanged");
+    assert.match(report.observations[0].interpretation, /not a diagnosis/);
+  });
+
+  it("compares confirmed observations without treating fewer reports as improvement", () => {
+    const now = new Date("2026-11-25T00:00:00.000Z");
+    const tradeRows = [
+      {
+        symbol: "EURUSD",
+        direction: "long",
+        status: "Closed",
+        profitLoss: -12,
+        profitLossCurrency: "USD",
+        openedAt: new Date("2026-11-05T12:00:00.000Z"),
+        behaviourFlags: [
+          {
+            challenge: "revenge_trading",
+            confirmed: true,
+            confidence: 0.8,
+            createdAt: new Date("2026-11-05T12:00:00.000Z"),
+            evidence: {
+              description: "Opened shortly after a recorded loss.",
+            },
+          },
+        ],
+      },
+      {
+        symbol: "GBPUSD",
+        direction: "short",
+        status: "Closed",
+        openedAt: new Date("2026-10-10T12:00:00.000Z"),
+        behaviourFlags: [
+          {
+            challenge: "revenge_trading",
+            confirmed: true,
+            confidence: 0.6,
+            createdAt: new Date("2026-10-10T12:00:00.000Z"),
+          },
+        ],
+      },
+    ];
+    const report = buildBehaviourReports({
+      challenges: ["revenge_trading"],
+      tradeRows,
+      journalRows: [],
+      now,
+    });
+
+    assert.equal(report.observations[0].occurrences, 1);
+    assert.equal(report.observations[0].comparisonOccurrences, 1);
+    assert.equal(report.observations[0].trend, "unchanged");
+    assert.equal(report.observations[0].evidence[0].associatedOutcome.amount, -12);
+    assert.match(report.observations[0].interpretation, /Fewer reports can also mean less data/);
   });
 });

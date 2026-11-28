@@ -2,6 +2,7 @@ import BehaviouralInsight from "../models/behaviouralInsights.js";
 import Journal from "../models/Journal.js";
 import Trade from "../models/Trades.js";
 import TradingAccount from "../models/tradingAccounts.js";
+import TradingPlan from "../models/tradingPlan.js";
 import User from "../models/User.js";
 import { analyzeJournalWithAi } from "./ai.service.js";
 import { currencyService } from "./currency/currency.service.js";
@@ -456,11 +457,27 @@ async function createJournalService(data, userId, journalDate) {
 
   await setActiveTradingAccount(userId, tradingAccount._id);
 
+  const activePlan =
+    result.data.tradingPlan ||
+    (
+      await TradingPlan.findOne({
+        userId,
+        tradingAccount: tradingAccount._id,
+        status: "Active",
+        validFrom: { $lte: journalDate },
+        validUntil: { $gt: journalDate },
+      })
+        .sort({ version: -1 })
+        .select("_id")
+        .lean()
+    )?._id;
+
   try {
     const journal = await Journal.create({
       user: userId,
       ...result.data,
       tradingAccount: tradingAccount._id,
+      ...(activePlan ? { tradingPlan: activePlan } : {}),
       journalDate,
     });
 

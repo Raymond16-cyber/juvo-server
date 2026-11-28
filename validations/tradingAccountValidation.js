@@ -55,6 +55,52 @@ function validateTradingAccountInput(payload) {
   };
 }
 
+function validateTradingAccountUpdateInput(payload = {}) {
+  const errors = [];
+  const data = {};
+  const allowedFields = ["accountName", "maxDrawnDown", "profitTarget"];
 
+  for (const key of ["accountNumber", "broker", "platform", "currency"]) {
+    if (payload[key] !== undefined) {
+      errors.push(`${key} cannot be changed for a trading account.`);
+    }
+  }
 
-export { validateTradingAccountInput };
+  if (payload.accountName !== undefined) {
+    if (typeof payload.accountName !== "string" || !payload.accountName.trim()) {
+      errors.push("Account name is required.");
+    } else if (payload.accountName.trim().length > 100) {
+      errors.push("Account name cannot exceed 100 characters.");
+    } else {
+      data.accountName = payload.accountName.trim();
+    }
+  }
+
+  for (const key of ["maxDrawnDown", "profitTarget"]) {
+    if (payload[key] === undefined) continue;
+    const value =
+      typeof payload[key] === "number" || typeof payload[key] === "string"
+        ? Number(payload[key])
+        : Number.NaN;
+    if (!Number.isFinite(value) || value < 0) {
+      errors.push(
+        key === "maxDrawnDown"
+          ? "Maximum drawdown must be a non-negative number."
+          : "Profit target must be a non-negative number.",
+      );
+    } else {
+      data[key] = value;
+    }
+  }
+
+  if (!allowedFields.some((key) => payload[key] !== undefined)) {
+    errors.push("Provide an account name, maximum drawdown, or profit target.");
+  }
+
+  return { isValid: errors.length === 0, errors, data };
+}
+
+export {
+  validateTradingAccountInput,
+  validateTradingAccountUpdateInput,
+};

@@ -136,6 +136,85 @@ const journalSchema = new mongoose.Schema(
       },
     },
 
+    // Snapshot of plan-compliance evaluation for the plan version in force.
+    planCompliance: {
+      planId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "TradingPlan",
+        default: null,
+      },
+      planKey: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+      },
+      planVersion: {
+        type: Number,
+        default: null,
+      },
+      evaluatedAt: {
+        type: Date,
+        default: null,
+      },
+      score: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: null,
+      },
+      counts: {
+        followed: { type: Number, default: 0 },
+        violated: { type: Number, default: 0 },
+        unknown: { type: Number, default: 0 },
+        needs_confirmation: { type: Number, default: 0 },
+        not_applicable: { type: Number, default: 0 },
+        total: { type: Number, default: 0 },
+        notConfigured: { type: Number, default: 0 },
+        notRecorded: { type: Number, default: 0 },
+      },
+      checks: [
+        {
+          ruleId: { type: mongoose.Schema.Types.ObjectId, default: null },
+          label: { type: String, trim: true, maxlength: 80 },
+          title: { type: String, trim: true, maxlength: 160 },
+          category: { type: String, trim: true, maxlength: 40 },
+          status: {
+            type: String,
+            enum: [
+              "followed",
+              "violated",
+              "unknown",
+              "needs_confirmation",
+              "not_applicable",
+              "not_configured",
+              "not_recorded",
+            ],
+          },
+          evidence: { type: String, trim: true, maxlength: 500 },
+          source: {
+            type: String,
+            enum: ["auto", "manual", "ai"],
+            default: "auto",
+          },
+          manualNote: { type: String, trim: true, maxlength: 500, default: "" },
+          updatedAt: { type: Date, default: Date.now },
+          updatedBy: {
+            type: String,
+            enum: ["system", "user"],
+            default: "system",
+          },
+        },
+      ],
+      interpretation: { type: String, trim: true, maxlength: 2000, default: "" },
+      question: { type: String, trim: true, maxlength: 500, default: "" },
+      methodology: {
+        type: String,
+        trim: true,
+        maxlength: 500,
+        default:
+          "Score = followed / (followed + violated). Unknown, not applicable, not configured, and not recorded checks are excluded.",
+      },
+    },
+
     behaviourFlags: [
       {
         challenge: {
@@ -149,6 +228,7 @@ const journalSchema = new mongoose.Schema(
             "emotional_trading",
             "lack_of_discipline",
             "inconsistent_strategy",
+            "overconfidence",
           ],
           required: true,
         },
@@ -170,6 +250,12 @@ const journalSchema = new mongoose.Schema(
         dismissedAt: {
           type: Date,
           default: null,
+        },
+        evidence: {
+          kind: { type: String, trim: true, maxlength: 60 },
+          description: { type: String, trim: true, maxlength: 300 },
+          observedAt: Date,
+          metrics: mongoose.Schema.Types.Mixed,
         },
         createdAt: {
           type: Date,

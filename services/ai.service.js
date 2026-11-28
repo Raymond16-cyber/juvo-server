@@ -3,8 +3,12 @@ import { GoogleGenAI } from "@google/genai";
 import mongoose from "mongoose";
 import Conversation from "../models/Conversation.js";
 import Journal from "../models/Journal.js";
+import Goal from "../models/Goals.js";
+import "../models/PlanSuggestion.js";
+import TradingPlan from "../models/tradingPlan.js";
 import "../models/Trades.js";
 import User from "../models/User.js";
+import { createPlanSuggestionService } from "./tradingPlan.service.js";
 import {
   resolveReportingCurrency,
   resolveTradeCurrency,
@@ -21,7 +25,7 @@ import {
 } from "../utils/sanitizeModelIdentity.js";
 import { normalizeScreenshotReview } from "../utils/screenshotImage.js";
 
-const MODEL = "gemini-3.5-flash";
+const MODEL = "gemini-3.5-flash-lite";
 const SCREENSHOT_ANALYSIS_TIMEOUT_MS = 55_000;
 
 function readApiKey() {
@@ -169,20 +173,36 @@ async function completeWithGemini(messages) {
 }
 
 async function buildTraderContext(userId) {
-  const [user, journals] = await Promise.all([
+  const [user, journals, activePlans, activeBehaviourGoals] = await Promise.all([
     User.findById(userId)
       .select("fullName profile preferences stats subscription")
       .lean(),
     Journal.find({ user: userId })
       .select(
-        "journalDate status psychology review discipline ai trades totalProfitLoss",
+        "journalDate status psychology review discipline ai trades totalProfitLoss behaviourFlags",
       )
       .populate(
         "trades",
-        "symbol instrument direction status profitLoss profitLossCurrency plannedRR achievedRR session notes openedAt closedAt tradingAccount",
+        "symbol instrument direction status profitLoss profitLossCurrency plannedRR achievedRR session notes openedAt closedAt tradingAccount behaviourFlags",
       )
       .populate("tradingAccount", "currency accountCurrency")
       .sort({ journalDate: -1 })
+      .limit(12)
+      .lean(),
+    TradingPlan.find({ userId, status: "Active" })
+      .select(
+        "name version planKey maxRiskPerTrade maxDailyTrades maxDailyLoss maxWeeklyLoss maxMonthlyLoss maxConsecutiveLosses minimumRR allowedSessions rules checklist tradingAccount strategyLabel entryTimeframe analysisTimeframe",
+      )
+      .sort({ updatedAt: -1 })
+      .limit(5)
+      .lean(),
+    Goal.find({
+      user: userId,
+      status: "Active",
+      behaviorChallenge: { $type: "string" },
+    })
+      .select("title description behaviorChallenge targetValue currentValue unit")
+      .sort({ updatedAt: -1 })
       .limit(12)
       .lean(),
   ]);
@@ -197,6 +217,7 @@ async function buildTraderContext(userId) {
       review: journal.review,
       discipline: journal.discipline,
       ai: journal.ai,
+      behaviourFlags: journal.behaviourFlags || [],
       trades: trades.map((trade) => ({
         symbol: trade.symbol,
         instrument: trade.instrument,
@@ -212,6 +233,7 @@ async function buildTraderContext(userId) {
         achievedRR: trade.achievedRR,
         session: trade.session,
         notes: trade.notes,
+        behaviourFlags: trade.behaviourFlags || [],
       })),
     };
   });
@@ -226,7 +248,11 @@ async function buildTraderContext(userId) {
       timezone: user?.profile?.timezone,
       reportingCurrency,
       stats: user?.stats,
+      selectedChallenges: user?.profile?.biggestChallenges || [],
+      challengeProgress: user?.profile?.challengeProgress || [],
     },
+    activeTradingPlans: activePlans,
+    activeBehaviourGoals,
     recentJournals,
   };
 }
@@ -292,6 +318,30 @@ function titleFromMessage(message) {
   return compact.length > 72 ? `${compact.slice(0, 69)}...` : compact;
 }
 
+const PLAN_SUGGESTION_BLOCK =
+  /<<<JUVO_PLAN_SUGGESTION>>>\s*([\s\S]*?)\s*<<<END_JUVO_PLAN_SUGGESTION>>>/i;
+
+function extractPlanSuggestionsFromReply(rawText) {
+  const text = String(rawText || "");
+  const match = text.match(PLAN_SUGGESTION_BLOCK);
+  if (!match) {
+    return { reply: text.trim(), suggestions: [] };
+  }
+
+  const reply = text.replace(PLAN_SUGGESTION_BLOCK, "").trim();
+  const parsed = parseJsonText(match[1]) || {};
+  const list = Array.isArray(parsed.suggestions)
+    ? parsed.suggestions
+    : parsed.title || parsed.proposedRule
+      ? [parsed]
+      : [];
+
+  return {
+    reply,
+    suggestions: list.slice(0, 2),
+  };
+}
+
 async function listConversationsService(userId) {
   const conversations = await Conversation.find({ user: userId })
     .select("title lastMessageAt createdAt updatedAt messages")
@@ -317,7 +367,9 @@ async function getConversationService(conversationId, userId) {
   const conversation = await Conversation.findOne({
     _id: conversationId,
     user: userId,
-  }).lean();
+  })
+    .populate("messages.planSuggestions")
+    .lean();
 
   if (!conversation) {
     return {
@@ -327,7 +379,19 @@ async function getConversationService(conversationId, userId) {
     };
   }
 
-  return { success: true, data: conversation };
+  const data = {
+    ...conversation,
+    messages: (conversation.messages || []).map((message) => ({
+      ...message,
+      planSuggestionDetails: Array.isArray(message.planSuggestions)
+        ? message.planSuggestions.filter(
+            (item) => item && typeof item === "object" && item._id,
+          )
+        : [],
+    })),
+  };
+
+  return { success: true, data };
 }
 
 async function deleteConversationsService(conversationIds, userId) {
@@ -499,18 +563,36 @@ async function chatWithJuvoService({
       _id: { $in: selectedIds },
     })
       .select(
-        "journalDate status psychology review discipline ai trades totalProfitLoss",
+        "journalDate status psychology review discipline ai trades totalProfitLoss behaviourFlags",
       )
       .populate(
         "trades",
-        "symbol instrument direction status profitLoss profitLossCurrency plannedRR achievedRR session notes openedAt closedAt tradingAccount",
+        "symbol instrument direction status profitLoss profitLossCurrency plannedRR achievedRR session notes openedAt closedAt tradingAccount behaviourFlags",
       )
       .populate("tradingAccount", "currency accountCurrency")
       .lean();
 
-    const user = await User.findById(userId)
-      .select("fullName profile preferences stats subscription")
-      .lean();
+    const [user, activePlans, activeBehaviourGoals] = await Promise.all([
+      User.findById(userId)
+        .select("fullName profile preferences stats subscription")
+        .lean(),
+      TradingPlan.find({ userId, status: "Active" })
+        .select(
+          "name version planKey maxRiskPerTrade maxDailyTrades maxDailyLoss maxWeeklyLoss maxMonthlyLoss maxConsecutiveLosses minimumRR allowedSessions rules checklist tradingAccount strategyLabel entryTimeframe analysisTimeframe",
+        )
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .lean(),
+      Goal.find({
+        user: userId,
+        status: "Active",
+        behaviorChallenge: { $type: "string" },
+      })
+        .select("title description behaviorChallenge targetValue currentValue unit")
+        .sort({ updatedAt: -1 })
+        .limit(12)
+        .lean(),
+    ]);
     const reportingCurrency = resolveReportingCurrency(user);
     context = {
       mode: "ask_your_journal",
@@ -520,7 +602,11 @@ async function chatWithJuvoService({
         tradingStyle: user?.profile?.tradingStyle,
         timezone: user?.profile?.timezone,
         reportingCurrency,
+        selectedChallenges: user?.profile?.biggestChallenges || [],
+        challengeProgress: user?.profile?.challengeProgress || [],
       },
+      activeTradingPlans: activePlans,
+      activeBehaviourGoals,
       selectedJournals: journals.map((journal) => ({
         id: String(journal._id),
         date: journal.journalDate,
@@ -529,6 +615,7 @@ async function chatWithJuvoService({
         review: journal.review,
         discipline: journal.discipline,
         ai: journal.ai,
+        behaviourFlags: journal.behaviourFlags || [],
         trades: (journal.trades || []).map((trade) => ({
           symbol: trade.symbol,
           instrument: trade.instrument,
@@ -544,6 +631,7 @@ async function chatWithJuvoService({
           achievedRR: trade.achievedRR,
           session: trade.session,
           notes: trade.notes,
+          behaviourFlags: trade.behaviourFlags || [],
         })),
       })),
     };
@@ -570,13 +658,33 @@ async function chatWithJuvoService({
     return result;
   }
 
-  const reply = sanitizeModelIdentity(result.text);
+  const extracted = extractPlanSuggestionsFromReply(result.text);
+  const reply = sanitizeModelIdentity(extracted.reply || result.text);
   const now = new Date();
   conversation.messages.push({ role: "user", content, createdAt: now });
+
+  const suggestionIds = [];
+  const suggestionPayloads = [];
+  for (const rawSuggestion of extracted.suggestions) {
+    try {
+      const created = await createPlanSuggestionService(userId, rawSuggestion, {
+        conversationId: conversation._id,
+        messageCreatedAt: now,
+      });
+      if (created.success && created.data?._id) {
+        suggestionIds.push(created.data._id);
+        suggestionPayloads.push(created.data);
+      }
+    } catch (error) {
+      console.error("Failed to persist plan suggestion:", error?.message || error);
+    }
+  }
+
   conversation.messages.push({
     role: "assistant",
     content: reply,
     createdAt: now,
+    planSuggestions: suggestionIds,
   });
   conversation.lastMessageAt = now;
   if (conversation.title === "New conversation") {
@@ -584,13 +692,34 @@ async function chatWithJuvoService({
   }
   await conversation.save();
 
+  const messages = (conversation.messages || []).map((message) => {
+    const plain = typeof message.toObject === "function" ? message.toObject() : message;
+    if (
+      plain.role === "assistant" &&
+      Array.isArray(plain.planSuggestions) &&
+      plain.planSuggestions.length &&
+      suggestionPayloads.length
+    ) {
+      return {
+        ...plain,
+        planSuggestionDetails: suggestionPayloads.filter((item) =>
+          plain.planSuggestions.some(
+            (id) => String(id) === String(item._id),
+          ),
+        ),
+      };
+    }
+    return plain;
+  });
+
   return {
     success: true,
     data: {
       conversationId: conversation._id,
       title: conversation.title,
       reply,
-      messages: conversation.messages,
+      messages,
+      planSuggestions: suggestionPayloads,
     },
   };
 }

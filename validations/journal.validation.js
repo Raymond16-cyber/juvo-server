@@ -97,6 +97,13 @@ function validateTradeInput(payload = {}) {
     }
   }
 
+  if (takeProfit !== undefined && !Number.isFinite(takeProfit)) {
+    errors.push("Take profit must be a finite number.");
+  }
+  if (lotSize !== undefined && !Number.isFinite(lotSize)) {
+    errors.push("Lot size must be a finite number.");
+  }
+
   if (Number.isFinite(riskPercentage) && riskPercentage > 100) {
     errors.push("Risk percentage cannot exceed 100.");
   }

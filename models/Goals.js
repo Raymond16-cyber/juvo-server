@@ -12,7 +12,29 @@ const goalSchema = new mongoose.Schema(
     tradingAccount: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "TradingAccount",
-      required: true,
+    },
+    behaviorChallenge: {
+      type: String,
+      enum: [
+        "fomo",
+        "revenge_trading",
+        "overtrading",
+        "impatience",
+        "poor_risk_management",
+        "emotional_trading",
+        "lack_of_discipline",
+        "inconsistent_strategy",
+        "overconfidence",
+      ],
+      default: null,
+    },
+    autoManaged: {
+      type: Boolean,
+      default: false,
+    },
+    behaviorPausedAt: {
+      type: Date,
+      default: null,
     },
 
     title: {
@@ -109,6 +131,13 @@ goalSchema.index({
   tradingAccount: 1,
   status: 1,
 });
+goalSchema.index(
+  { user: 1, behaviorChallenge: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { behaviorChallenge: { $type: "string" } },
+  },
+);
 
 const Goal = mongoose.model("Goal", goalSchema);
 

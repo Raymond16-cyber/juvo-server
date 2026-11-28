@@ -29,6 +29,12 @@ const conversationSchema = new mongoose.Schema(
           type: Date,
           default: Date.now,
         },
+        planSuggestions: [
+          {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "PlanSuggestion",
+          },
+        ],
       },
     ],
     lastMessageAt: {

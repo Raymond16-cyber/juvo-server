@@ -27,6 +27,7 @@ const PROFILE_CHALLENGES = [
   "emotional_trading",
   "lack_of_discipline",
   "inconsistent_strategy",
+  "overconfidence",
 ];
 const THEME_OPTIONS = ["light", "dark", "system"];
 const WEEK_START_OPTIONS = ["sunday", "monday"];
@@ -40,7 +41,7 @@ function validateOnboardingInput(payload) {
     tradingStyle: (payload.tradingStyle || "").trim(),
     instruments: Array.isArray(payload.instruments) ? payload.instruments : [],
     biggestChallenges: Array.isArray(payload.biggestChallenges)
-      ? payload.biggestChallenges
+      ? [...new Set(payload.biggestChallenges)]
       : [],
     theme: (payload.theme || "").trim(),
     preferredCurrency: (payload.preferredCurrency || "").trim(),

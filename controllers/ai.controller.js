@@ -12,6 +12,7 @@ import {
   generatePlanCompliance,
   getAiCheckinState,
   updateAiCheckinPreferences,
+  updatePlanComplianceManual,
 } from "../services/aiFeatures.service.js";
 import { buildUsageMapForUser } from "../services/aiUsage.service.js";
 import {
@@ -278,6 +279,33 @@ async function planComplianceController(req, res, next) {
   }
 }
 
+async function updatePlanComplianceController(req, res, next) {
+  try {
+    const userId = getUserId(req.user);
+    const body = req.body?.data || req.body || {};
+    const result = await updatePlanComplianceManual({
+      userId,
+      journalId: body.journalId || req.params.journalId,
+      label: body.label,
+      ruleId: body.ruleId,
+      status: body.status,
+      manualNote: body.manualNote || body.note || "",
+    });
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        message: result.message,
+      });
+    }
+    return res.status(200).json({
+      message: "Plan compliance updated.",
+      data: result.data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function periodReviewController(req, res, next) {
   try {
     const userId = getUserId(req.user);
@@ -427,4 +455,5 @@ export {
   planComplianceController,
   putCheckinPreferencesController,
   startAiTrialController,
+  updatePlanComplianceController,
 };

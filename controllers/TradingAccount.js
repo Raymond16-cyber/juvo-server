@@ -6,6 +6,7 @@ import {
   getTradingAccountByIdService,
   getUserTradingAccountsService,
   restoreTradingAccountService,
+  updateTradingAccountService,
 } from "../services/tradingAccountService.js";
 
 const createTradingAccountController = async (req, res, next) => {
@@ -127,6 +128,33 @@ const getTradingAccountByIdController = async (req, res, next) => {
   }
 };
 
+const updateTradingAccountController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    if (!userId) {
+      return res.status(400).json({ message: "User is not signed in." });
+    }
+
+    const result = await updateTradingAccountService(
+      req.params.accountId,
+      req.body?.data ?? req.body,
+      userId,
+    );
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        message: result.message,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Trading account updated successfully.",
+      data: result.data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const activateTradingAccountController = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -187,4 +215,5 @@ export {
   getTradingAccountByIdController,
   getUserTradingAccountsController,
   restoreTradingAccountController,
+  updateTradingAccountController,
 };

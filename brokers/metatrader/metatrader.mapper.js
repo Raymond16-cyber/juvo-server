@@ -1,4 +1,6 @@
 import { connectorError as metaError } from "./metatrader.security.js";
+import { derivePlannedRR } from "../../utils/tradeMetrics.js";
+import { inferTradingSession } from "../../utils/tradingSession.js";
 
 const numeric = (value) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 const protectiveLevel = (value) => value === 0 ? undefined : numeric(value);
@@ -82,12 +84,21 @@ export function normalizeMetaDeals(deals, connection) {
       if (numeric(deal.profit) === undefined) { incomplete++; continue; }
       const fee = (numeric(deal.fee) || 0) * (reversal ? closed / volume : 1) + (inventory.fee || 0) * ratio;
       const profitLoss = Number((deal.profit + commission + swap + fee).toFixed(8));
+      const stopLoss = protectiveLevel(deal.stopLoss) ?? inventory.stopLoss;
+      const takeProfit = protectiveLevel(deal.takeProfit) ?? inventory.takeProfit;
+      const plannedRR = derivePlannedRR({
+        direction: inventory.direction,
+        entryPrice: inventory.price,
+        stopLoss,
+        takeProfit,
+      });
       trades.push(clean({ source: "metatrader", platform: connection.platform,
         externalId: `${connection.tradingAccount || connection.externalAccountId}:deal:${deal.id}`, externalDealId: String(deal.id),
         externalPositionId: key, externalOrderId: deal.orderId == null ? undefined : String(deal.orderId),
         symbol: deal.symbol, instrument: instrument(deal.symbol), direction: inventory.direction,
         entryPrice: inventory.price, exitPrice: price, lotSize: closed, openedAt: inventory.openedAt, closedAt: time,
-        stopLoss: protectiveLevel(deal.stopLoss) ?? inventory.stopLoss, takeProfit: protectiveLevel(deal.takeProfit) ?? inventory.takeProfit,
+        session: inferTradingSession(inventory.openedAt),
+        stopLoss, takeProfit, plannedRR,
         profitLoss, commission, swap, fee, status: profitLoss === 0 ? "Breakeven" : "Closed",
         brokerMetadata: clean({ magic: deal.magic ?? inventory.magic, comment: deal.comment?.slice(0, 256), origin: inventory.origin,
           partialClose: closed < inventory.volume - 1e-8 }) }));

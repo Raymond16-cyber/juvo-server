@@ -489,18 +489,23 @@ async function updatePreferencesService(userId, payload = {}) {
   }
   let filteredChallenges = null;
   if (biggestChallenges) {
-    filteredChallenges = biggestChallenges.filter((challenge) =>
-      [
-        "fomo",
-        "revenge_trading",
-        "overtrading",
-        "impatience",
-        "poor_risk_management",
-        "emotional_trading",
-        "lack_of_discipline",
-        "inconsistent_strategy",
-      ].includes(challenge),
-    );
+    filteredChallenges = [
+      ...new Set(
+        biggestChallenges.filter((challenge) =>
+          [
+            "fomo",
+            "revenge_trading",
+            "overtrading",
+            "impatience",
+            "poor_risk_management",
+            "emotional_trading",
+            "lack_of_discipline",
+            "inconsistent_strategy",
+            "overconfidence",
+          ].includes(challenge),
+        ),
+      ),
+    ];
     updates["profile.biggestChallenges"] = filteredChallenges;
   }
 

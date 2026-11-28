@@ -165,7 +165,7 @@ async function getAnalyticsService(userId, tradingAccountId, dateRange = {}) {
 
   const journals = await Journal.find(journalQuery)
     .select(
-      "journalDate status psychology review discipline ai trades tradingAccount createdAt",
+      "journalDate status psychology review discipline ai trades tradingAccount createdAt planCompliance",
     )
     .populate(
       "trades",
@@ -378,6 +378,108 @@ async function getAnalyticsService(userId, tradingAccountId, dateRange = {}) {
     ? Number(selectedAccount.initialBalance || 0)
     : 0;
 
+  const evaluatedJournals = journals.filter(
+    (journal) =>
+      journal.planCompliance &&
+      Array.isArray(journal.planCompliance.checks) &&
+      journal.planCompliance.checks.length,
+  );
+  const ruleViolationMap = new Map();
+  let followedTradeCount = 0;
+  let violatedTradeCount = 0;
+  let followedPnl = 0;
+  let violatedPnl = 0;
+  let followedWins = 0;
+  let violatedWins = 0;
+  let followedRrTotal = 0;
+  let followedRrCount = 0;
+  let violatedRrTotal = 0;
+  let violatedRrCount = 0;
+
+  for (const journal of evaluatedJournals) {
+    const score = Number(journal.planCompliance?.score);
+    const journalTrades = (journal.trades || []).filter(isClosedTrade);
+    const journalPnl = journalTrades.reduce(
+      (sum, trade) => sum + Number(trade.moneyValue ?? trade.profitLoss ?? 0),
+      0,
+    );
+    const journalWins = journalTrades.filter(
+      (trade) => Number(trade.moneyValue ?? trade.profitLoss ?? 0) > 0,
+    ).length;
+    const rrValues = journalTrades
+      .map((trade) => Number(trade.achievedRR))
+      .filter((value) => Number.isFinite(value));
+
+    const mostlyFollowed =
+      Number.isFinite(score) ? score >= 70 : journal.planCompliance?.counts?.violated === 0;
+    if (mostlyFollowed) {
+      followedTradeCount += journalTrades.length;
+      followedPnl += journalPnl;
+      followedWins += journalWins;
+      followedRrTotal += rrValues.reduce((sum, value) => sum + value, 0);
+      followedRrCount += rrValues.length;
+    } else {
+      violatedTradeCount += journalTrades.length;
+      violatedPnl += journalPnl;
+      violatedWins += journalWins;
+      violatedRrTotal += rrValues.reduce((sum, value) => sum + value, 0);
+      violatedRrCount += rrValues.length;
+    }
+
+    for (const check of journal.planCompliance.checks || []) {
+      if (check.status !== "violated") continue;
+      const key = check.title || check.label || "Rule";
+      const current = ruleViolationMap.get(key) || { rule: key, count: 0 };
+      current.count += 1;
+      ruleViolationMap.set(key, current);
+    }
+  }
+
+  const avgScoreValues = evaluatedJournals
+    .map((journal) => Number(journal.planCompliance?.score))
+    .filter((value) => Number.isFinite(value));
+  const planComplianceAnalytics = {
+    evaluatedJournals: evaluatedJournals.length,
+    averageScore: avgScoreValues.length
+      ? round(
+          avgScoreValues.reduce((sum, value) => sum + value, 0) /
+            avgScoreValues.length,
+          1,
+        )
+      : null,
+    mostViolatedRules: [...ruleViolationMap.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5),
+    followedVsViolated: {
+      followed: {
+        journals: evaluatedJournals.filter((journal) => {
+          const score = Number(journal.planCompliance?.score);
+          return Number.isFinite(score)
+            ? score >= 70
+            : journal.planCompliance?.counts?.violated === 0;
+        }).length,
+        trades: followedTradeCount,
+        winRate: percent(followedWins, followedTradeCount),
+        avgRr: followedRrCount ? round(followedRrTotal / followedRrCount) : null,
+        avgPnl: followedTradeCount ? round(followedPnl / followedTradeCount) : null,
+      },
+      violated: {
+        journals: evaluatedJournals.filter((journal) => {
+          const score = Number(journal.planCompliance?.score);
+          return Number.isFinite(score)
+            ? score < 70
+            : (journal.planCompliance?.counts?.violated || 0) > 0;
+        }).length,
+        trades: violatedTradeCount,
+        winRate: percent(violatedWins, violatedTradeCount),
+        avgRr: violatedRrCount ? round(violatedRrTotal / violatedRrCount) : null,
+        avgPnl: violatedTradeCount ? round(violatedPnl / violatedTradeCount) : null,
+      },
+    },
+    note:
+      "Comparisons describe association in this period. They do not prove that following the plan caused better results.",
+  };
+
   return {
     success: true,
     data: {
@@ -474,6 +576,7 @@ async function getAnalyticsService(userId, tradingAccountId, dateRange = {}) {
         },
       },
       insights,
+      planCompliance: planComplianceAnalytics,
       accounts: accounts.map((account) => ({
         _id: account._id,
         accountName: account.accountName,

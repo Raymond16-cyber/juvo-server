@@ -4,8 +4,13 @@ import Journal from "../../models/Journal.js";
 import Trade from "../../models/Trades.js";
 import TradingAccount from "../../models/tradingAccounts.js";
 import User from "../../models/User.js";
+import {
+  applyTradeBehaviourFlags,
+  runBehaviourDetectionSafe,
+} from "../../services/behaviour.service.js";
 import { emitToUser } from "../../realtime/realtime.hub.js";
 import { brokerLog, brokerWarn } from "../../utils/brokerDebug.js";
+import { getUserTimeZone, getZonedDateParts, zonedTimeToUtc } from "../../utils/timezone.js";
 import {
   CTRADER_DEAL_STATUS,
   CTRADER_EXECUTION_TYPE,
@@ -15,7 +20,6 @@ import {
   buildSymbolLookup,
   mapCTraderDealToTrade,
   mapCTraderPosition,
-  startOfUtcDay,
 } from "./ctrader.mapper.js";
 
 function safeTradeForRealtime(trade) {
@@ -39,6 +43,7 @@ function safeTradeForRealtime(trade) {
     profitLossCurrency: plain.profitLossCurrency,
     status: plain.status,
     source: plain.source,
+    session: plain.session,
     externalId: plain.externalId,
     externalPositionId: plain.externalPositionId,
     externalOrderId: plain.externalOrderId,
@@ -111,7 +116,19 @@ async function resolveCTraderOwner(ctidTraderAccountId) {
 }
 
 async function findOrCreateImportedJournal({ userId, tradingAccountId, timestamp }) {
-  const journalDate = startOfUtcDay(timestamp);
+  const user = await User.findById(userId).select("profile.timezone").lean();
+  const timeZone = getUserTimeZone(user);
+  const dateParts = getZonedDateParts(timestamp, timeZone);
+  const journalDate = zonedTimeToUtc(
+    {
+      ...dateParts,
+      hour: 0,
+      minute: 0,
+      second: 0,
+      millisecond: 0,
+    },
+    timeZone,
+  );
   return Journal.findOneAndUpdate(
     {
       user: userId,
@@ -174,11 +191,22 @@ async function upsertClosedTrade({ owner, payload, symbolLookup, moneyDigits }) 
   const deal = payload.deal;
   if (!deal || deal.dealStatus !== CTRADER_DEAL_STATUS.FILLED) return null;
 
+  const positionEntry = deal.positionId
+    ? await BrokerPosition.findOne({
+        userId: owner.userId,
+        provider: "ctrader",
+        ctidTraderAccountId: String(payload.ctidTraderAccountId),
+        externalPositionId: String(deal.positionId),
+      })
+        .select("openedAt stopLoss takeProfit")
+        .lean()
+    : null;
   const mapped = mapCTraderDealToTrade({
     deal,
     ctidTraderAccountId: payload.ctidTraderAccountId,
     symbolLookup,
     moneyDigits,
+    positionEntry,
   });
 
   if (!mapped) return null;
@@ -246,6 +274,17 @@ async function upsertClosedTrade({ owner, payload, symbolLookup, moneyDigits }) 
       ? Promise.resolve()
       : User.findByIdAndUpdate(owner.userId, { $inc: { "stats.totalTrades": 1 } }),
   ]);
+
+  if (!existing) {
+    runBehaviourDetectionSafe(() =>
+      applyTradeBehaviourFlags({
+        userId: owner.userId,
+        journal,
+        trade,
+        event: "trade_close",
+      }),
+    );
+  }
 
   brokerLog("juvo:trade:saved", {
     userId: String(owner.userId),

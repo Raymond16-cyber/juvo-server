@@ -219,155 +219,406 @@ async function generateJournalInterviewer({
   };
 }
 
-function classifyPlanCheck({ ok, evidence, label }) {
-  if (ok === true) return { status: "followed", evidence, label };
-  if (ok === false) return { status: "violated", evidence, label };
-  return { status: "unknown", evidence, label };
+function classifyPlanCheck({
+  ok,
+  evidence,
+  label,
+  title,
+  category,
+  ruleId = null,
+  source = "auto",
+}) {
+  const base = {
+    evidence,
+    label,
+    title: title || label,
+    category: category || "General",
+    ruleId,
+    source,
+  };
+  if (ok === true) return { ...base, status: "followed" };
+  if (ok === false) return { ...base, status: "violated" };
+  if (ok === "needs_confirmation") {
+    return { ...base, status: "needs_confirmation" };
+  }
+  if (ok === "not_applicable") {
+    return { ...base, status: "not_applicable" };
+  }
+  return { ...base, status: "unknown" };
+}
+
+function computeComplianceScore(counts) {
+  const scored = (counts.followed || 0) + (counts.violated || 0);
+  if (!scored) return null;
+  return Math.round(((counts.followed || 0) / scored) * 100);
 }
 
 function buildPlanComplianceChecks({ plan, trades, journal }) {
   const checks = [];
+  const notConfigured = [];
+  const notRecorded = [];
   const closed = (trades || []).filter(
     (trade) => trade.status === "Closed" || trade.status === "Breakeven",
   );
+  const addNotConfigured = (label, evidence, title, category) => {
+    notConfigured.push({
+      status: "not_configured",
+      evidence,
+      label,
+      title: title || label,
+      category: category || "General",
+      source: "auto",
+    });
+  };
+  const addNotRecorded = (label, evidence, title, category) => {
+    notRecorded.push({
+      status: "not_recorded",
+      evidence,
+      label,
+      title: title || label,
+      category: category || "General",
+      source: "auto",
+    });
+  };
 
-  if (plan?.maxRiskPerTrade != null) {
-    const offenders = closed.filter(
-      (trade) =>
-        Number.isFinite(trade.riskPercentage) &&
-        trade.riskPercentage > plan.maxRiskPerTrade,
-    );
+  const enabledRules = (plan?.rules || []).filter((rule) => rule.enabled !== false);
+  const hasRuleMetric = (metric) =>
+    enabledRules.some((rule) => (rule.metric || rule.key) === metric);
+
+  const evaluateMetric = (metric, title, category, value, evaluator) => {
+    if (value == null || (Array.isArray(value) && !value.length)) {
+      if (!hasRuleMetric(metric)) {
+        addNotConfigured(
+          metric,
+          `No ${title.toLowerCase()} is set on the linked plan.`,
+          title,
+          category,
+        );
+      }
+      return;
+    }
+    const result = evaluator(value);
     checks.push(
       classifyPlanCheck({
-        label: "max_risk_per_trade",
-        ok: closed.some((t) => Number.isFinite(t.riskPercentage))
-          ? offenders.length === 0
-          : null,
-        evidence:
-          offenders.length > 0
-            ? `${offenders.length} trade(s) exceeded ${plan.maxRiskPerTrade}% risk.`
-            : closed.some((t) => Number.isFinite(t.riskPercentage))
-              ? `All sized trades stayed at or under ${plan.maxRiskPerTrade}% risk.`
-              : "Risk percentage was not logged on trades.",
+        label: metric,
+        title,
+        category,
+        ...result,
       }),
     );
-  } else {
-    checks.push(
-      classifyPlanCheck({
-        label: "max_risk_per_trade",
-        ok: null,
-        evidence: "No max risk per trade on the linked plan.",
-      }),
-    );
-  }
+  };
 
-  if (plan?.minimumRR != null) {
-    const withRr = closed.filter((trade) => Number.isFinite(trade.plannedRR));
-    const offenders = withRr.filter((trade) => trade.plannedRR < plan.minimumRR);
-    checks.push(
-      classifyPlanCheck({
-        label: "minimum_rr",
+  evaluateMetric(
+    "max_risk_per_trade",
+    "Maximum risk per trade",
+    "Risk",
+    plan?.maxRiskPerTrade,
+    (limit) => {
+      const offenders = closed.filter(
+        (trade) =>
+          Number.isFinite(trade.riskPercentage) && trade.riskPercentage > limit,
+      );
+      const hasRisk = closed.some((t) => Number.isFinite(t.riskPercentage));
+      return {
+        ok: hasRisk ? offenders.length === 0 : null,
+        evidence: offenders.length
+          ? `${offenders.length} trade(s) exceeded ${limit}% risk.`
+          : hasRisk
+            ? `All sized trades stayed at or under ${limit}% risk.`
+            : "Risk percentage was not logged on trades.",
+      };
+    },
+  );
+
+  evaluateMetric(
+    "minimum_rr",
+    "Minimum risk/reward ratio",
+    "Strategy",
+    plan?.minimumRR,
+    (limit) => {
+      const withRr = closed.filter((trade) => Number.isFinite(trade.plannedRR));
+      const offenders = withRr.filter((trade) => trade.plannedRR < limit);
+      return {
         ok: withRr.length ? offenders.length === 0 : null,
         evidence: withRr.length
           ? offenders.length
-            ? `${offenders.length} trade(s) planned below ${plan.minimumRR}R.`
-            : `Planned R multiples met the ${plan.minimumRR}R floor.`
+            ? `${offenders.length} trade(s) planned below ${limit}R.`
+            : `Planned R multiples met the ${limit}R floor.`
           : "Planned RR was not logged.",
-      }),
-    );
-  }
+      };
+    },
+  );
 
-  if (plan?.maxDailyTrades != null) {
-    checks.push(
-      classifyPlanCheck({
-        label: "max_daily_trades",
-        ok: trades.length <= plan.maxDailyTrades,
-        evidence: `${trades.length} trade(s) vs max ${plan.maxDailyTrades}/day.`,
-      }),
-    );
-  }
+  evaluateMetric(
+    "max_daily_trades",
+    "Maximum trades per day",
+    "Risk",
+    plan?.maxDailyTrades,
+    (limit) => ({
+      ok: (trades || []).length <= limit,
+      evidence: `${(trades || []).length} trade(s) vs max ${limit}/day.`,
+    }),
+  );
 
-  if (plan?.allowedSessions?.length) {
-    const withSession = closed.filter((trade) => trade.session);
-    const offenders = withSession.filter(
-      (trade) => !plan.allowedSessions.includes(trade.session),
-    );
-    checks.push(
-      classifyPlanCheck({
-        label: "allowed_sessions",
+  evaluateMetric(
+    "allowed_sessions",
+    "Allowed trading sessions",
+    "Sessions",
+    plan?.allowedSessions,
+    (sessions) => {
+      const withSession = closed.filter((trade) => trade.session);
+      const offenders = withSession.filter(
+        (trade) => !sessions.includes(trade.session),
+      );
+      return {
         ok: withSession.length ? offenders.length === 0 : null,
         evidence: withSession.length
           ? offenders.length
             ? `${offenders.length} trade(s) outside allowed sessions.`
             : "Trades stayed inside allowed sessions."
           : "Session tags were missing on trades.",
+      };
+    },
+  );
+
+  if (plan?.maxDailyLoss != null) {
+    const pnls = closed
+      .map((trade) => Number(trade.profitLoss))
+      .filter((value) => Number.isFinite(value));
+    if (!pnls.length) {
+      checks.push(
+        classifyPlanCheck({
+          label: "max_daily_loss",
+          title: "Maximum daily loss",
+          category: "Risk",
+          ok: null,
+          evidence: "Trade P/L was not available to verify daily loss.",
+        }),
+      );
+    } else {
+      const dayPnl = pnls.reduce((sum, value) => sum + value, 0);
+      checks.push(
+        classifyPlanCheck({
+          label: "max_daily_loss",
+          title: "Maximum daily loss",
+          category: "Risk",
+          ok: "needs_confirmation",
+          evidence: `Plan caps daily loss at ${plan.maxDailyLoss}%. Session P/L is ${dayPnl}. Confirm against account equity.`,
+          source: "auto",
+        }),
+      );
+    }
+  }
+
+  for (const rule of enabledRules) {
+    const metric = rule.metric || rule.key;
+    if (
+      [
+        "max_risk_per_trade",
+        "minimum_rr",
+        "max_daily_trades",
+        "allowed_sessions",
+        "max_daily_loss",
+        "max_weekly_loss",
+        "max_monthly_loss",
+      ].includes(metric)
+    ) {
+      continue;
+    }
+
+    const prior = (journal?.planCompliance?.checks || []).find(
+      (item) =>
+        (rule._id && String(item.ruleId) === String(rule._id)) ||
+        item.label === metric ||
+        item.title === rule.title,
+    );
+
+    if (
+      prior &&
+      ["followed", "violated"].includes(prior.status) &&
+      prior.source === "manual"
+    ) {
+      checks.push({
+        label: metric || rule.title,
+        title: rule.title,
+        category: rule.category || "General",
+        ruleId: rule._id || null,
+        status: prior.status,
+        evidence:
+          prior.manualNote || prior.evidence || "Marked manually by the trader.",
+        source: "manual",
+        manualNote: prior.manualNote || "",
+      });
+      continue;
+    }
+
+    checks.push(
+      classifyPlanCheck({
+        label: metric || `rule_${String(rule._id || rule.title)}`,
+        title: rule.title,
+        category:
+          rule.category ||
+          (rule.kind === "commitment" ? "Commitment" : "Behaviour"),
+        ruleId: rule._id || null,
+        ok: "needs_confirmation",
+        evidence:
+          rule.kind === "commitment"
+            ? "Personal commitment — mark whether you followed it."
+            : "Behavioural or strategy rule — confirm from your session notes.",
+        source: "manual",
       }),
     );
   }
 
   const discipline = journal?.discipline || {};
-  checks.push(
-    classifyPlanCheck({
-      label: "followed_trading_plan",
-      ok:
-        typeof discipline.followedTradingPlan === "boolean"
-          ? discipline.followedTradingPlan
-          : null,
-      evidence:
-        typeof discipline.followedTradingPlan === "boolean"
-          ? discipline.followedTradingPlan
-            ? "Trader marked the trading plan as followed."
-            : "Trader marked the trading plan as not followed."
-          : "Trader did not mark plan adherence.",
-    }),
+  const addDisciplineCheck = (
+    label,
+    value,
+    followedEvidence,
+    violatedEvidence,
+    missingEvidence,
+    invert = false,
+    title,
+    category = "Behaviour",
+  ) => {
+    if (typeof value !== "boolean") {
+      addNotRecorded(label, missingEvidence, title || label, category);
+      return;
+    }
+    checks.push(
+      classifyPlanCheck({
+        label,
+        title: title || label,
+        category,
+        ok: invert ? !value : value,
+        evidence: value ? followedEvidence : violatedEvidence,
+        source: "manual",
+      }),
+    );
+  };
+  addDisciplineCheck(
+    "followed_trading_plan",
+    discipline.followedTradingPlan,
+    "Trader marked the trading plan as followed.",
+    "Trader marked the trading plan as not followed.",
+    "Plan adherence was not recorded in the journal.",
+    false,
+    "Trading plan adherence",
+    "General",
   );
-  checks.push(
-    classifyPlanCheck({
-      label: "followed_risk_management",
-      ok:
-        typeof discipline.followedRiskManagement === "boolean"
-          ? discipline.followedRiskManagement
-          : null,
-      evidence:
-        typeof discipline.followedRiskManagement === "boolean"
-          ? discipline.followedRiskManagement
-            ? "Trader marked risk management as followed."
-            : "Trader marked risk management as broken."
-          : "Risk management flag was not set.",
-    }),
+  addDisciplineCheck(
+    "followed_risk_management",
+    discipline.followedRiskManagement,
+    "Trader marked risk management as followed.",
+    "Trader marked risk management as not followed.",
+    "Risk-management adherence was not recorded in the journal.",
+    false,
+    "Risk-management adherence",
+    "Risk",
   );
-  checks.push(
-    classifyPlanCheck({
-      label: "revenge_trading",
-      ok:
-        typeof discipline.revengeTraded === "boolean"
-          ? !discipline.revengeTraded
-          : null,
-      evidence:
-        typeof discipline.revengeTraded === "boolean"
-          ? discipline.revengeTraded
-            ? "Revenge trading was flagged."
-            : "No revenge-trading flag."
-          : "Revenge-trading flag was not set.",
-    }),
+  addDisciplineCheck(
+    "revenge_trading",
+    discipline.revengeTraded,
+    "No revenge trading was reported.",
+    "Revenge trading was reported.",
+    "Revenge-trading status was not recorded in the journal.",
+    true,
+    "No revenge trading",
+    "Behaviour",
   );
 
   const followed = checks.filter((item) => item.status === "followed");
   const violated = checks.filter((item) => item.status === "violated");
   const unknown = checks.filter((item) => item.status === "unknown");
+  const needsConfirmation = checks.filter(
+    (item) => item.status === "needs_confirmation",
+  );
+  const notApplicable = checks.filter(
+    (item) => item.status === "not_applicable",
+  );
+  const counts = {
+    followed: followed.length,
+    violated: violated.length,
+    unknown: unknown.length,
+    needs_confirmation: needsConfirmation.length,
+    not_applicable: notApplicable.length,
+    total:
+      followed.length +
+      violated.length +
+      unknown.length +
+      needsConfirmation.length +
+      notApplicable.length,
+    notConfigured: notConfigured.length,
+    notRecorded: notRecorded.length,
+  };
 
   return {
     checks,
-    counts: {
-      followed: followed.length,
-      violated: violated.length,
-      unknown: unknown.length,
-      total: checks.length,
-    },
+    counts,
+    score: computeComplianceScore(counts),
     followed,
     violated,
     unknown,
+    needsConfirmation,
+    notApplicable,
+    notConfigured,
+    notRecorded,
+    methodology:
+      "Score = followed / (followed + violated). Unknown, needs confirmation, not applicable, not configured, and not recorded checks are excluded from the percentage.",
   };
+}
+
+function buildCompliancePayload({ compliance, linkedPlan, interpretation, question }) {
+  return {
+    planId: linkedPlan?._id || null,
+    planKey: linkedPlan?.planKey || null,
+    planVersion: linkedPlan?.version || null,
+    planName: linkedPlan?.name || null,
+    evaluatedAt: new Date(),
+    score: compliance.score,
+    counts: compliance.counts,
+    checks: (compliance.checks || []).map((item) => ({
+      ruleId: item.ruleId || null,
+      label: item.label,
+      title: item.title || item.label,
+      category: item.category || "General",
+      status: item.status,
+      evidence: item.evidence || "",
+      source: item.source || "auto",
+      manualNote: item.manualNote || "",
+      updatedAt: new Date(),
+      updatedBy: item.source === "manual" ? "user" : "system",
+    })),
+    followed: compliance.followed,
+    violated: compliance.violated,
+    unknown: compliance.unknown,
+    needsConfirmation: compliance.needsConfirmation || [],
+    notApplicable: compliance.notApplicable || [],
+    notConfigured: compliance.notConfigured,
+    notRecorded: compliance.notRecorded,
+    interpretation: interpretation || "",
+    question: question || "",
+    methodology: compliance.methodology,
+  };
+}
+
+async function persistJournalCompliance(journal, payload) {
+  journal.planCompliance = {
+    planId: payload.planId,
+    planKey: payload.planKey,
+    planVersion: payload.planVersion,
+    evaluatedAt: payload.evaluatedAt,
+    score: payload.score,
+    counts: payload.counts,
+    checks: payload.checks,
+    interpretation: payload.interpretation,
+    question: payload.question,
+    methodology: payload.methodology,
+  };
+  if (payload.planId && !journal.tradingPlan) {
+    journal.tradingPlan = payload.planId;
+  }
+  await journal.save();
 }
 
 async function generatePlanCompliance({
@@ -391,7 +642,7 @@ async function generatePlanCompliance({
   const journal = await Journal.findOne({ _id: journalId, user: userId })
     .populate(
       "trades",
-      "symbol direction status session riskPercentage plannedRR achievedRR notes",
+      "symbol direction status session riskPercentage plannedRR achievedRR notes profitLoss",
     )
     .populate("tradingPlan");
 
@@ -407,15 +658,32 @@ async function generatePlanCompliance({
     }
   }
 
-  let linkedPlan = journal.tradingPlan;
-  if (!linkedPlan && journal.tradingPlan) {
-    linkedPlan = await TradingPlan.findById(journal.tradingPlan);
+  const journalDate = new Date(journal.journalDate);
+  const planReference = journal.tradingPlan;
+  let linkedPlan =
+    planReference && typeof planReference === "object" && planReference._id
+      ? planReference
+      : null;
+  if (!linkedPlan && planReference) {
+    linkedPlan = await TradingPlan.findById(
+      planReference._id || planReference,
+    );
+  }
+  // Prefer the plan version that was effective on the journal date (historical integrity).
+  if (!linkedPlan && journal.tradingAccount) {
+    linkedPlan = await TradingPlan.findOne({
+      userId,
+      tradingAccount: journal.tradingAccount,
+      validFrom: { $lte: journalDate },
+      validUntil: { $gt: journalDate },
+    }).sort({ version: -1, validFrom: -1 });
   }
   if (!linkedPlan && journal.tradingAccount) {
     linkedPlan = await TradingPlan.findOne({
       userId,
       tradingAccount: journal.tradingAccount,
-    }).sort({ validFrom: -1 });
+      status: "Active",
+    }).sort({ version: -1 });
   }
 
   const compliance = buildPlanComplianceChecks({
@@ -424,6 +692,28 @@ async function generatePlanCompliance({
     journal,
   });
 
+  const hasApplicableChecks = compliance.counts.total > 0;
+  if (!hasApplicableChecks) {
+    const notConfiguredCount = compliance.counts.notConfigured;
+    const notRecordedCount = compliance.counts.notRecorded;
+    const interpretation =
+      "No plan compliance could be assessed because no configured plan rules or journal adherence responses were available. These items are not treated as violations. Set the plan rules you want to track and record your adherence in the journal to get an assessment." +
+      (notConfiguredCount || notRecordedCount
+        ? ` ${notConfiguredCount} rule(s) are not configured and ${notRecordedCount} journal response(s) are not recorded.`
+        : "");
+    const data = buildCompliancePayload({
+      compliance,
+      linkedPlan,
+      interpretation,
+      question: "",
+    });
+    await persistJournalCompliance(journal, data);
+    return {
+      success: true,
+      data,
+      usage: quota.usage,
+    };
+  }
   const result = await completeWithGemini([
     { role: "system", content: JUVO_PLAN_COMPLIANCE_INSTRUCTIONS },
     {
@@ -433,6 +723,10 @@ async function generatePlanCompliance({
         followed: compliance.followed,
         violated: compliance.violated,
         unknown: compliance.unknown,
+        needsConfirmation: compliance.needsConfirmation,
+        notConfigured: compliance.notConfigured,
+        notRecorded: compliance.notRecorded,
+        planVersion: linkedPlan?.version || null,
       }),
     },
   ]);
@@ -444,19 +738,129 @@ async function generatePlanCompliance({
     ENTITLEMENTS.PLAN_COMPLIANCE_CHECK,
   );
 
+  const data = buildCompliancePayload({
+    compliance,
+    linkedPlan,
+    interpretation: sanitizeModelIdentity(
+      String(parsed.interpretation || result.text).trim(),
+    ),
+    question: sanitizeModelIdentity(String(parsed.question || "").trim()),
+  });
+  await persistJournalCompliance(journal, data);
+
+  return {
+    success: true,
+    data,
+    usage: { ...quota.usage, used: usage.used },
+  };
+}
+
+async function updatePlanComplianceManual({
+  userId,
+  journalId,
+  label,
+  ruleId,
+  status,
+  manualNote = "",
+}) {
+  if (!mongoose.Types.ObjectId.isValid(journalId)) {
+    return { success: false, statusCode: 400, message: "Invalid journal." };
+  }
+  if (!["followed", "violated", "not_applicable", "needs_confirmation"].includes(status)) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: "Status must be followed, violated, not_applicable, or needs_confirmation.",
+    };
+  }
+
+  const journal = await Journal.findOne({ _id: journalId, user: userId });
+  if (!journal) {
+    return { success: false, statusCode: 404, message: "Journal not found." };
+  }
+
+  const checks = Array.isArray(journal.planCompliance?.checks)
+    ? [...journal.planCompliance.checks.map((item) => item.toObject?.() || { ...item })]
+    : [];
+
+  let index = checks.findIndex((item) => {
+    if (ruleId && item.ruleId && String(item.ruleId) === String(ruleId)) return true;
+    return label && item.label === label;
+  });
+
+  if (index < 0) {
+    checks.push({
+      ruleId: ruleId || null,
+      label: label || "manual_check",
+      title: label || "Manual check",
+      category: "Behaviour",
+      status,
+      evidence: manualNote || "Marked manually by the trader.",
+      source: "manual",
+      manualNote: String(manualNote || "").slice(0, 500),
+      updatedAt: new Date(),
+      updatedBy: "user",
+    });
+    index = checks.length - 1;
+  } else {
+    checks[index] = {
+      ...checks[index],
+      status,
+      source: "manual",
+      manualNote: String(manualNote || "").slice(0, 500),
+      evidence:
+        manualNote ||
+        checks[index].evidence ||
+        "Marked manually by the trader.",
+      updatedAt: new Date(),
+      updatedBy: "user",
+    };
+  }
+
+  const followed = checks.filter((item) => item.status === "followed");
+  const violated = checks.filter((item) => item.status === "violated");
+  const unknown = checks.filter((item) => item.status === "unknown");
+  const needsConfirmation = checks.filter(
+    (item) => item.status === "needs_confirmation",
+  );
+  const notApplicable = checks.filter(
+    (item) => item.status === "not_applicable",
+  );
+  const counts = {
+    ...(journal.planCompliance?.counts || {}),
+    followed: followed.length,
+    violated: violated.length,
+    unknown: unknown.length,
+    needs_confirmation: needsConfirmation.length,
+    not_applicable: notApplicable.length,
+    total: checks.length,
+  };
+  const score = computeComplianceScore(counts);
+
+  journal.planCompliance = {
+    ...(journal.planCompliance?.toObject?.() || journal.planCompliance || {}),
+    counts,
+    score,
+    checks,
+    evaluatedAt: new Date(),
+  };
+  await journal.save();
+
   return {
     success: true,
     data: {
-      counts: compliance.counts,
-      followed: compliance.followed,
-      violated: compliance.violated,
-      unknown: compliance.unknown,
-      interpretation: sanitizeModelIdentity(
-        String(parsed.interpretation || result.text).trim(),
-      ),
-      question: sanitizeModelIdentity(String(parsed.question || "").trim()),
+      planId: journal.planCompliance.planId,
+      planVersion: journal.planCompliance.planVersion,
+      score,
+      counts,
+      checks,
+      followed,
+      violated,
+      unknown,
+      needsConfirmation,
+      notApplicable,
+      methodology: journal.planCompliance.methodology,
     },
-    usage: { ...quota.usage, used: usage.used },
   };
 }
 
@@ -798,6 +1202,90 @@ async function generateGoalCoach({
     return { success: false, statusCode: 404, message: "Goal not found." };
   }
 
+  let behaviourContext = null;
+  if (goal.behaviorChallenge) {
+    const [user, trades, journals, plans] = await Promise.all([
+      User.findById(userId)
+        .select("profile.biggestChallenges profile.challengeProgress profile.timezone")
+        .lean(),
+      Trade.find({
+        user: userId,
+        "behaviourFlags.challenge": goal.behaviorChallenge,
+      })
+        .select("symbol status riskPercentage profitLoss profitLossCurrency openedAt closedAt behaviourFlags")
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+      Journal.find({
+        user: userId,
+        "behaviourFlags.challenge": goal.behaviorChallenge,
+      })
+        .select("journalDate discipline psychology behaviourFlags")
+        .sort({ journalDate: -1 })
+        .limit(10)
+        .lean(),
+      TradingPlan.find({ userId, status: "Active" })
+        .select(
+          "name version planKey maxRiskPerTrade maxDailyTrades maxDailyLoss maxWeeklyLoss maxMonthlyLoss maxConsecutiveLosses minimumRR allowedSessions rules checklist strategyLabel entryTimeframe analysisTimeframe",
+        )
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .lean(),
+    ]);
+    behaviourContext = {
+      selectedChallenges: user?.profile?.biggestChallenges || [],
+      progress: user?.profile?.challengeProgress || [],
+      activeTradingPlans: plans,
+      observations: [
+        ...trades.flatMap((trade) =>
+          (trade.behaviourFlags || [])
+            .filter((flag) => flag.challenge === goal.behaviorChallenge)
+            .map((flag) => ({
+              date: flag.createdAt || trade.openedAt || trade.closedAt,
+              source: flag.source,
+              status:
+                flag.confirmed === true
+                  ? "confirmed"
+                  : flag.confirmed === false || flag.dismissedAt
+                    ? "dismissed"
+                    : "suggested",
+              confidence: flag.confidence,
+              evidence: flag.evidence || null,
+              symbol: trade.symbol,
+              tradeStatus: trade.status,
+              riskPercentage: trade.riskPercentage,
+              profitLoss: trade.profitLoss,
+              profitLossCurrency: trade.profitLossCurrency,
+            })),
+        ),
+        ...journals.flatMap((journal) =>
+          (journal.behaviourFlags || [])
+            .filter((flag) => flag.challenge === goal.behaviorChallenge)
+            .map((flag) => ({
+              date: flag.createdAt || journal.journalDate,
+              source: flag.source,
+              status:
+                flag.confirmed === true
+                  ? "confirmed"
+                  : flag.confirmed === false || flag.dismissedAt
+                    ? "dismissed"
+                    : "suggested",
+              confidence: flag.confidence,
+              evidence: flag.evidence || null,
+              discipline: journal.discipline,
+              psychology: journal.psychology,
+            })),
+        ),
+      ]
+        .sort(
+          (left, right) =>
+            new Date(right.date || 0).getTime() -
+            new Date(left.date || 0).getTime(),
+        )
+        .slice(0, 15),
+    };
+  }
+
   const result = await completeWithGemini([
     { role: "system", content: JUVO_GOAL_COACH_INSTRUCTIONS },
     {
@@ -817,7 +1305,9 @@ async function generateGoalCoach({
           startsAt: goal.startsAt,
           endsAt: goal.endsAt,
           notes: goal.notes,
+          behaviorChallenge: goal.behaviorChallenge || null,
         },
+        behaviourContext,
       }),
     },
   ]);
@@ -996,6 +1486,7 @@ async function updateAiCheckinPreferences(userId, body = {}) {
 export {
   METRIC_KEYS,
   buildPlanComplianceChecks,
+  computeComplianceScore,
   explainMetric,
   generateGoalCoach,
   generateJournalInterviewer,
@@ -1005,4 +1496,5 @@ export {
   interviewerSourcePayload,
   stableHash,
   updateAiCheckinPreferences,
+  updatePlanComplianceManual,
 };

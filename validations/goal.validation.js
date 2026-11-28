@@ -68,14 +68,25 @@ function validateGoalInput(payload = {}, { partial = false } = {}) {
     errors.push("Current value must be a number.");
   }
 
-  const startsAt = payload.startsAt ? new Date(payload.startsAt) : new Date();
-  const endsAt = payload.endsAt
-    ? new Date(payload.endsAt)
-    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const startsAt =
+    payload.startsAt !== undefined
+      ? new Date(payload.startsAt)
+      : partial
+        ? undefined
+        : new Date();
+  const endsAt =
+    payload.endsAt !== undefined
+      ? new Date(payload.endsAt)
+      : partial
+        ? undefined
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+  if (
+    (startsAt && Number.isNaN(startsAt.getTime())) ||
+    (endsAt && Number.isNaN(endsAt.getTime()))
+  ) {
     errors.push("Goal dates are invalid.");
-  } else if (endsAt <= startsAt) {
+  } else if (startsAt && endsAt && endsAt <= startsAt) {
     errors.push("Goal end date must be after the start date.");
   }
 
@@ -95,8 +106,8 @@ function validateGoalInput(payload = {}, { partial = false } = {}) {
       ...(unit ? { unit } : {}),
       ...(payload.priority !== undefined || !partial ? { priority } : {}),
       ...(payload.status !== undefined ? { status } : {}),
-      startsAt,
-      endsAt,
+      ...(startsAt ? { startsAt } : {}),
+      ...(endsAt ? { endsAt } : {}),
       ...(notes ? { notes } : {}),
     },
   };
